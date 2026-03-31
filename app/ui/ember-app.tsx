@@ -1493,19 +1493,23 @@ export default function EmberApp() {
   };
 
   const shareResource = async (resource: Resource) => {
+    const shareText = resource.note
+      ? `${resource.title}\n\n${resource.note}\n\n${resource.url}`
+      : `${resource.title}\n\n${resource.url}`;
+
     try {
       if (navigator.share) {
         await navigator.share({
           title: resource.title,
-          url: resource.url,
+          text: shareText,
         });
         setResourceMessage("Link shared.");
         return;
       }
 
       if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(resource.url);
-        setResourceMessage("Link copied to share.");
+        await navigator.clipboard.writeText(shareText);
+        setResourceMessage("Link and note copied to share.");
         return;
       }
     } catch {
@@ -2783,22 +2787,22 @@ export default function EmberApp() {
                       key={resource.id}
                       className="rounded-2xl border border-border bg-[#101b2e] px-3 py-3"
                     >
-                      <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-3">
                         <a
-                          className="min-w-0 flex-1 hover:text-white"
+                          className="block min-w-0 hover:text-white"
                           href={resource.url}
                           rel="noreferrer"
                           target="_blank"
                         >
                           <p className="text-sm font-semibold text-white">{resource.title}</p>
                           <p className="mt-1 truncate text-xs text-muted">{resource.url}</p>
-                          {resource.note ? (
-                            <p className="mt-2 text-sm leading-6 text-[#eef6ff]">
-                              {resource.note}
-                            </p>
-                          ) : null}
                         </a>
-                        <div className="flex items-center gap-2">
+                        {resource.note ? (
+                          <p className="whitespace-normal break-words text-sm leading-6 text-[#eef6ff]">
+                            {resource.note}
+                          </p>
+                        ) : null}
+                        <div className="flex flex-wrap items-center gap-2">
                           <button
                             className="rounded-full border border-border px-3 py-1 text-xs text-muted hover:text-white"
                             onClick={() => {
