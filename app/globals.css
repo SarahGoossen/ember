@@ -1,26 +1,224 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #081120;
+  --foreground: #f8f5f0;
+  --card: rgba(30, 49, 82, 0.9);
+  --card-strong: rgba(42, 64, 104, 0.97);
+  --muted: #d4def0;
+  --border: rgba(255, 255, 255, 0.1);
+  --accent: #ffc46f;
+  --accent-soft: rgba(255, 196, 111, 0.18);
+  --accent-metal: #ffe0ae;
+  --shadow-soft: 0 18px 48px rgba(3, 8, 18, 0.38);
+  --shadow-hover: 0 22px 56px rgba(0, 0, 0, 0.36);
+  --font-sans: "Avenir Next", "Segoe UI", "Trebuchet MS", sans-serif;
+  --font-serif: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-card: var(--card);
+  --color-card-strong: var(--card-strong);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --font-sans: var(--font-sans);
+  --font-serif: var(--font-serif);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background:
+    radial-gradient(circle at 12% 8%, rgba(86, 193, 255, 0.24), transparent 24%),
+    radial-gradient(circle at 82% 12%, rgba(255, 117, 168, 0.16), transparent 22%),
+    radial-gradient(circle at 50% 0%, rgba(255, 196, 111, 0.16), transparent 26%),
+    linear-gradient(180deg, #0d1730 0%, #07101d 100%);
 }
 
 body {
+  min-height: 100vh;
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+a,
+button,
+input,
+textarea {
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease;
+}
+
+button,
+input,
+textarea {
+  touch-action: manipulation;
+}
+
+input,
+textarea,
+select {
+  font-size: 16px;
+}
+
+:focus-visible {
+  outline: 2px solid rgba(255, 196, 111, 0.9);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: rgba(255, 196, 111, 0.32);
+  color: #fff7ef;
+}
+
+.ember-app {
+  background:
+    radial-gradient(circle at top, rgba(86, 193, 255, 0.1), transparent 24%),
+    radial-gradient(circle at 82% 18%, rgba(255, 117, 168, 0.08), transparent 22%),
+    linear-gradient(180deg, rgba(13, 24, 43, 0.92), rgba(8, 14, 24, 0.98));
+}
+
+.ember-app button,
+.ember-app a,
+.ember-app label {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ember-shell {
+  position: relative;
+  overflow: hidden;
+  box-shadow:
+    var(--shadow-soft),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.ember-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.08), transparent 28%),
+    linear-gradient(180deg, rgba(86, 193, 255, 0.08), transparent 30%),
+    linear-gradient(220deg, rgba(255, 117, 168, 0.06), transparent 36%);
+  opacity: 0.9;
+}
+
+.ember-content > header,
+.ember-content > section {
+  position: relative;
+  overflow: hidden;
+  box-shadow:
+    0 8px 28px rgba(5, 10, 18, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.ember-content > header::before,
+.ember-content > section::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.06), transparent 24%),
+    linear-gradient(180deg, rgba(255, 196, 111, 0.06), transparent 42%),
+    linear-gradient(225deg, rgba(86, 193, 255, 0.05), transparent 30%);
+  opacity: 0.8;
+}
+
+@media (hover: hover) {
+  .ember-content > header:hover,
+  .ember-content > section:hover {
+    transform: translateY(-2px);
+    border-color: rgba(255, 196, 111, 0.22);
+    box-shadow:
+      var(--shadow-hover),
+      inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+
+  .ember-app button:hover,
+  .ember-app a:hover {
+    box-shadow:
+      0 10px 24px rgba(0, 0, 0, 0.2),
+      inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  }
+
+  .ember-app input:hover,
+  .ember-app textarea:hover {
+    border-color: rgba(255, 196, 111, 0.22);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@keyframes fadeSoft {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  14%,
+  72% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes activityGlow {
+  0% {
+    box-shadow: 0 0 0 rgba(242, 166, 90, 0);
+  }
+
+  35% {
+    box-shadow: 0 0 0 1px rgba(242, 166, 90, 0.16),
+      0 0 24px rgba(242, 166, 90, 0.12);
+  }
+
+  100% {
+    box-shadow: 0 0 0 rgba(242, 166, 90, 0);
+  }
+}
+
+@keyframes softCheck {
+  0% {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+
+  45% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
