@@ -53,6 +53,15 @@ type Resource = {
   note: string;
 };
 
+type PlanReminderRepeat =
+  | "none"
+  | "daily"
+  | "monthly"
+  | "yearly"
+  | "every-4-hours"
+  | "every-6-hours"
+  | "custom-hours";
+
 type PlanItem = {
   id: number;
   dateKey: string;
@@ -61,7 +70,9 @@ type PlanItem = {
   note: string;
   completed: boolean;
   reminder: boolean;
-  lastReminderDate: string | null;
+  repeat: PlanReminderRepeat;
+  customRepeatHours: number | null;
+  lastReminderKey: string | null;
 };
 
 type Profile = {
@@ -74,204 +85,204 @@ type Profile = {
 
 const inspireMoments = [
   {
-    quote: "Small steps still move you forward.",
-    note: "A little progress is still progress.",
+    quote: "A new day can hold something good.",
+    note: "You do not have to do everything to feel proud of today.",
   },
   {
-    quote: "Healing can be quiet and still be real.",
-    note: "Not every strong day looks loud.",
+    quote: "You are allowed to feel hopeful here.",
+    note: "Good things can grow slowly and still be real.",
   },
   {
-    quote: "Rest counts. Beginning again counts too.",
-    note: "Both are part of steady care.",
+    quote: "Little wins can brighten a whole day.",
+    note: "Start with one, and let it count.",
   },
   {
-    quote: "You do not need to rush your way back to yourself.",
-    note: "Gentleness can still carry you home.",
+    quote: "You have more strength than this moment can measure.",
+    note: "It is already in you.",
   },
   {
-    quote: "One day at a time is enough.",
-    note: "Today is not asking for forever.",
+    quote: "There is still good ahead of you.",
+    note: "Today can be one small step toward it.",
   },
   {
-    quote: "Softness is not weakness.",
-    note: "It can be a form of strength.",
+    quote: "A small start is still a real start.",
+    note: "Forward is forward.",
   },
   {
-    quote: "You are allowed to begin quietly.",
-    note: "A slow start still counts.",
+    quote: "You can begin again as many times as you need.",
+    note: "That is part of growing.",
   },
   {
-    quote: "The smallest kindness can change a day.",
-    note: "Especially when you offer it to yourself.",
+    quote: "There is lightness waiting for you too.",
+    note: "It can show up in simple moments.",
   },
   {
-    quote: "You have survived hard days before.",
-    note: "That strength is still with you.",
+    quote: "A calmer day can start with one good choice.",
+    note: "Let the next step be enough.",
   },
   {
-    quote: "Breathe here. Stay with this moment.",
-    note: "You only need to meet what is here now.",
+    quote: "You are building something steady.",
+    note: "It may be quiet, but it is real.",
   },
   {
-    quote: "Even tired hearts can keep going.",
-    note: "Steady does not mean fast.",
+    quote: "There is room for joy in recovery too.",
+    note: "It does not have to wait for perfect days.",
   },
   {
-    quote: "Not every step has to feel certain.",
-    note: "Moving gently is still moving.",
+    quote: "A better stretch of days can begin here.",
+    note: "One choice at a time.",
   },
   {
-    quote: "There is courage in showing up softly.",
-    note: "Quiet effort is still effort.",
+    quote: "Your pace can still take you somewhere beautiful.",
+    note: "Slow does not mean stuck.",
   },
   {
-    quote: "You can honor your limits and still grow.",
-    note: "Care and progress belong together.",
+    quote: "You are doing more than you think.",
+    note: "Small effort adds up quietly.",
   },
   {
-    quote: "Today can be simple.",
-    note: "Simple can still be meaningful.",
+    quote: "This day still has possibility in it.",
+    note: "Let one good thing happen on purpose.",
   },
   {
-    quote: "A pause is not the same as giving up.",
-    note: "Breathing room can help you continue.",
+    quote: "You can carry both tiredness and hope.",
+    note: "They can live in the same day.",
   },
   {
-    quote: "Strength can look like resting on purpose.",
-    note: "Recovery is active in its own way.",
+    quote: "There is something lovely about starting small.",
+    note: "It keeps the door open.",
   },
   {
-    quote: "Your pace is still a pace.",
-    note: "You do not need to match anyone else.",
+    quote: "Today can still surprise you in a good way.",
+    note: "Leave a little room for that.",
   },
   {
-    quote: "You are rebuilding, not behind.",
-    note: "This season has its own rhythm.",
+    quote: "You are not behind. You are on your way.",
+    note: "Your timeline still counts.",
   },
   {
-    quote: "Hope can be very quiet.",
-    note: "It still matters when it whispers.",
+    quote: "Your effort is making room for brighter days.",
+    note: "Even now.",
   },
   {
-    quote: "Your effort matters, even when unseen.",
-    note: "Private wins still count.",
+    quote: "A little energy can go a long way.",
+    note: "Use it for what matters most.",
   },
   {
-    quote: "Some days the brave thing is staying gentle.",
-    note: "That is enough for today.",
+    quote: "You can feel proud of showing up.",
+    note: "That counts every single time.",
   },
   {
-    quote: "You are allowed to heal without hurrying.",
-    note: "Time can be part of the medicine.",
+    quote: "There is momentum in even the smallest move.",
+    note: "Keep it simple and keep it going.",
   },
   {
-    quote: "Keep the promise of one small step.",
-    note: "The next right thing can be tiny.",
+    quote: "A kind day can begin with one kind choice.",
+    note: "Start there.",
   },
   {
-    quote: "There is wisdom in slowing down.",
-    note: "Listening is a form of care.",
+    quote: "You are allowed to look forward.",
+    note: "Hope belongs here too.",
   },
   {
-    quote: "You do not need a perfect day to make progress.",
-    note: "Imperfect care still nourishes.",
+    quote: "The next chapter does not have to be heavy.",
+    note: "It can be lighter than the last.",
   },
   {
-    quote: "Something steady is growing in you.",
-    note: "Even if you cannot feel it yet.",
+    quote: "There is courage in trying again today.",
+    note: "That courage matters.",
   },
   {
-    quote: "Gentle routines can hold heavy hearts.",
-    note: "Let small anchors carry some weight.",
+    quote: "You are closer to steadiness than you think.",
+    note: "Keep going.",
   },
   {
-    quote: "Your body and mind are worthy of patience.",
-    note: "Tenderness belongs here too.",
+    quote: "Good days are built in small pieces.",
+    note: "One piece is enough to begin.",
   },
   {
-    quote: "There is no shame in starting again.",
-    note: "Fresh starts can happen any hour.",
+    quote: "You can make today a little better.",
+    note: "That is more than enough.",
   },
   {
-    quote: "You are doing meaningful work in small ways.",
-    note: "Healing often happens quietly.",
+    quote: "Your future self will thank you for this step.",
+    note: "Even if it is a small one.",
   },
   {
-    quote: "Some progress is only visible in hindsight.",
-    note: "It can still be real today.",
+    quote: "There is still warmth in this season.",
+    note: "Look for the small bright parts.",
   },
   {
-    quote: "A calm step is still a strong step.",
-    note: "You do not have to push to move forward.",
+    quote: "You are allowed to feel lighter little by little.",
+    note: "It does not have to happen all at once.",
   },
   {
-    quote: "Let this be a day of enough.",
-    note: "Enough is a gentle achievement.",
+    quote: "A hopeful day can start in ordinary ways.",
+    note: "A glass of water. A walk. A breath.",
   },
   {
-    quote: "There is room for both grief and growth.",
-    note: "More than one truth can live together.",
+    quote: "You have not missed your chance to feel better.",
+    note: "It can start from here.",
   },
   {
-    quote: "Your breath can be a place to return to.",
-    note: "Come back to it whenever you need.",
+    quote: "Your small routines can become real support.",
+    note: "They are working more than you know.",
   },
   {
-    quote: "Healing is not linear, but it is still movement.",
-    note: "Curves and pauses count too.",
+    quote: "There is something strong in your consistency.",
+    note: "Even quiet consistency shines.",
   },
   {
-    quote: "You can be tender and resilient at once.",
-    note: "Both can live in the same day.",
+    quote: "You are making space for better moments.",
+    note: "That matters.",
   },
   {
-    quote: "Some days the win is simply staying present.",
-    note: "Presence is its own kind of courage.",
+    quote: "A fresh start can happen this afternoon too.",
+    note: "It is never too late in the day.",
   },
   {
-    quote: "Your quiet effort is building something real.",
-    note: "Keep trusting the small pieces.",
+    quote: "There is joy in progress, even small progress.",
+    note: "Let yourself notice it.",
   },
   {
-    quote: "You are not failing because this is hard.",
-    note: "Hard things are hard for a reason.",
+    quote: "You can be both healing and hopeful.",
+    note: "Both belong here.",
   },
   {
-    quote: "A softer approach can still carry strength.",
-    note: "Gentle does not mean fragile.",
+    quote: "Something brighter can begin with this moment.",
+    note: "Start where you are.",
   },
   {
-    quote: "Today is a chance to begin again with kindness.",
-    note: "You can restart without scolding yourself.",
+    quote: "This version of you is worth cheering for.",
+    note: "Right now, as you are.",
   },
   {
-    quote: "Even now, there is something worth honoring.",
-    note: "Maybe it is simply that you stayed.",
+    quote: "You are creating your way back to yourself.",
+    note: "Step by step.",
   },
   {
-    quote: "Your story is allowed to unfold slowly.",
-    note: "You do not need to rush the chapter.",
+    quote: "A little hope can carry a lot.",
+    note: "Let it stay with you today.",
   },
   {
-    quote: "Keep going, but keep going gently.",
-    note: "The way you move matters too.",
+    quote: "There is a lot of life still waiting for you.",
+    note: "Keep making room for it.",
   },
   {
-    quote: "The day does not have to be easy to be meaningful.",
-    note: "Care still counts on difficult days.",
+    quote: "You can still have a good day from here.",
+    note: "One next step can change the tone of it.",
   },
   {
-    quote: "You are closer than you think.",
-    note: "Quiet consistency adds up.",
+    quote: "You are growing stronger in ways that count.",
+    note: "Keep noticing that.",
   },
   {
-    quote: "There is strength in choosing the next small good thing.",
-    note: "Let that be enough for now.",
+    quote: "The next small good thing is enough for now.",
+    note: "Let it lead the way.",
   },
   {
-    quote: "You are still becoming, even here.",
-    note: "Growth can happen in recovery too.",
+    quote: "You are still becoming, and that is beautiful.",
+    note: "There is more good ahead.",
   },
 ];
 
@@ -359,43 +370,9 @@ const initialCheckIns: CheckIn[] = [
   },
 ];
 
-const initialResources: Resource[] = [
-  {
-    id: 1,
-    title: "Box breathing guide",
-    url: "https://www.health.harvard.edu/mind-and-mood/relaxation-techniques-breath-control-helps-quell-errant-stress-response",
-    note: "A calming reset when the day feels tight or heavy.",
-  },
-  {
-    id: 2,
-    title: "Gentle desk stretches",
-    url: "https://www.nhs.uk/live-well/exercise/exercises-for-flexibility/",
-    note: "Helpful for loosening up after sitting for a while.",
-  },
-];
+const initialResources: Resource[] = [];
 
-const initialPlanItems: PlanItem[] = [
-  {
-    id: 1,
-    dateKey: "2026-03-31",
-    title: "Take medication",
-    time: "09:00",
-    note: "With breakfast and water.",
-    completed: false,
-    reminder: true,
-    lastReminderDate: null,
-  },
-  {
-    id: 2,
-    dateKey: "2026-04-01",
-    title: "Short evening stretch",
-    time: "19:30",
-    note: "",
-    completed: false,
-    reminder: true,
-    lastReminderDate: null,
-  },
-];
+const initialPlanItems: PlanItem[] = [];
 
 const initialProfile: Profile = {
   name: "",
@@ -450,6 +427,15 @@ const monthNames = [
 ];
 
 const weekdayLabels = ["S", "M", "T", "W", "T", "F", "S"];
+const planReminderOptions: Array<{ value: PlanReminderRepeat; label: string }> = [
+  { value: "none", label: "Once" },
+  { value: "daily", label: "Daily" },
+  { value: "monthly", label: "Monthly" },
+  { value: "yearly", label: "Yearly" },
+  { value: "every-4-hours", label: "Every 4 hours" },
+  { value: "every-6-hours", label: "Every 6 hours" },
+  { value: "custom-hours", label: "Custom hours" },
+];
 
 function getTodayKey() {
   return new Date().toISOString().slice(0, 10);
@@ -571,6 +557,141 @@ function formatReminderTime(value: string) {
   return `${normalizedHours}:${normalizedMinutes} ${suffix}`;
 }
 
+function formatPlanRepeatLabel(repeat: PlanReminderRepeat) {
+  return (
+    planReminderOptions.find((option) => option.value === repeat)?.label ?? "Once"
+  );
+}
+
+function getCustomRepeatHours(value: number | null | undefined) {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return 8;
+  }
+
+  return Math.min(24, Math.max(1, Math.round(value)));
+}
+
+function formatPlanReminderSummary(item: Pick<PlanItem, "reminder" | "repeat" | "customRepeatHours">) {
+  if (!item.reminder) {
+    return "";
+  }
+
+  if (item.repeat === "custom-hours") {
+    const hours = getCustomRepeatHours(item.customRepeatHours);
+    return `Every ${hours} ${hours === 1 ? "hour" : "hours"}`;
+  }
+
+  return formatPlanRepeatLabel(item.repeat);
+}
+
+function getMinuteOfDay(time: string) {
+  const [hoursText, minutesText] = time.split(":");
+  const hours = Number(hoursText);
+  const minutes = Number(minutesText);
+
+  if (Number.isNaN(hours) || Number.isNaN(minutes)) {
+    return null;
+  }
+
+  return hours * 60 + minutes;
+}
+
+function buildLocalDateTime(dateKey: string, time: string) {
+  return new Date(`${dateKey}T${time}:00`);
+}
+
+function getPlanReminderMatch(item: PlanItem, now: Date) {
+  const currentDateKey = getTodayKey();
+  const currentTimeKey = getCurrentTimeKey(now);
+
+  if (!item.reminder) {
+    return null;
+  }
+
+  if (item.repeat === "none") {
+    if (item.dateKey === currentDateKey && item.time === currentTimeKey) {
+      return { reminderKey: currentDateKey };
+    }
+
+    return null;
+  }
+
+  if (item.repeat === "daily") {
+    if (item.time === currentTimeKey) {
+      return { reminderKey: currentDateKey };
+    }
+
+    return null;
+  }
+
+  if (item.repeat === "monthly") {
+    const startDate = buildLocalDateTime(item.dateKey, item.time);
+
+    if (now < startDate) {
+      return null;
+    }
+
+    if (now.getDate() === startDate.getDate() && item.time === currentTimeKey) {
+      return { reminderKey: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}` };
+    }
+
+    return null;
+  }
+
+  if (item.repeat === "yearly") {
+    const startDate = buildLocalDateTime(item.dateKey, item.time);
+
+    if (now < startDate) {
+      return null;
+    }
+
+    if (
+      now.getMonth() === startDate.getMonth() &&
+      now.getDate() === startDate.getDate() &&
+      item.time === currentTimeKey
+    ) {
+      return { reminderKey: String(now.getFullYear()) };
+    }
+
+    return null;
+  }
+
+  const startDate = buildLocalDateTime(item.dateKey, item.time);
+  const startMs = startDate.getTime();
+
+  if (Number.isNaN(startMs) || now.getTime() < startMs) {
+    return null;
+  }
+
+  const intervalHours =
+    item.repeat === "every-4-hours"
+      ? 4
+      : item.repeat === "every-6-hours"
+        ? 6
+        : getCustomRepeatHours(item.customRepeatHours);
+  const intervalMinutes = intervalHours * 60;
+  const startMinuteOfDay = getMinuteOfDay(item.time);
+  const currentMinuteOfDay = getMinuteOfDay(currentTimeKey);
+
+  if (startMinuteOfDay === null || currentMinuteOfDay === null) {
+    return null;
+  }
+
+  if (currentMinuteOfDay % 60 !== startMinuteOfDay % 60) {
+    return null;
+  }
+
+  const elapsedMinutes = Math.floor((now.getTime() - startMs) / 60000);
+
+  if (elapsedMinutes >= 0 && elapsedMinutes % intervalMinutes === 0) {
+    return {
+      reminderKey: `${item.repeat}-${intervalHours}-${Math.floor(elapsedMinutes / intervalMinutes)}`,
+    };
+  }
+
+  return null;
+}
+
 function getActivityTrackedSeconds(activity: Pick<Activity, "loggedSeconds" | "timerStartedAt">, nowMs: number) {
   const baseSeconds = activity.loggedSeconds ?? 0;
 
@@ -665,12 +786,31 @@ function getCurrentTimeKey(date = new Date()) {
 }
 
 function normalizePlanItems(items: PlanItem[]) {
-  return items.map((item) => ({
-    ...item,
-    dateKey: item.dateKey ?? "2026-03-31",
-    reminder: item.reminder ?? true,
-    lastReminderDate: item.lastReminderDate ?? null,
-  }));
+  return items
+    .filter(
+      (item) =>
+        !(
+          item.title === "Take medication" &&
+          item.dateKey === "2026-03-31" &&
+          item.time === "09:00"
+        ) &&
+        !(
+          item.title === "Short evening stretch" &&
+          item.dateKey === "2026-04-01" &&
+          item.time === "19:30"
+        ),
+    )
+    .map((item) => ({
+      ...item,
+      dateKey: item.dateKey ?? "2026-03-31",
+      reminder: item.reminder ?? true,
+      repeat: item.repeat ?? "none",
+      customRepeatHours: item.customRepeatHours ?? null,
+      lastReminderKey:
+        item.lastReminderKey ??
+        (item as { lastReminderDate?: string | null }).lastReminderDate ??
+        null,
+    }));
 }
 
 function normalizeActivities(items: Activity[]) {
@@ -694,10 +834,23 @@ function normalizeSmallGoals(items: SmallGoal[]) {
 }
 
 function normalizeResources(items: Resource[]) {
-  return items.map((item) => ({
-    ...item,
-    note: item.note ?? "",
-  }));
+  return items
+    .filter(
+      (item) =>
+        !(
+          item.title === "Box breathing guide" &&
+          item.url ===
+            "https://www.health.harvard.edu/mind-and-mood/relaxation-techniques-breath-control-helps-quell-errant-stress-response"
+        ) &&
+        !(
+          item.title === "Gentle desk stretches" &&
+          item.url === "https://www.nhs.uk/live-well/exercise/exercises-for-flexibility/"
+        ),
+    )
+    .map((item) => ({
+      ...item,
+      note: item.note ?? "",
+    }));
 }
 
 function normalizeUrl(value: string) {
@@ -816,6 +969,18 @@ function scrollToPlanTarget(targetId: string) {
   }, 0);
 }
 
+function createPlanDraft(dateKey: string) {
+  return {
+    dateKey,
+    title: "",
+    time: "09:00",
+    note: "",
+    reminder: true,
+    repeat: "none" as PlanReminderRepeat,
+    customRepeatHours: 8,
+  };
+}
+
 export default function EmberApp() {
   const [activeTab, setActiveTab] = useState<TabId>("home");
   const [activities, setActivities] = useState<Activity[]>(normalizeActivities(initialActivities));
@@ -840,13 +1005,7 @@ export default function EmberApp() {
   const [editingEntryId, setEditingEntryId] = useState<number | null>(null);
   const [entryDraft, setEntryDraft] = useState({ feeling: "", note: "" });
   const [editingPlanItemId, setEditingPlanItemId] = useState<number | null>(null);
-  const [planDraft, setPlanDraft] = useState({
-    dateKey: "2026-03-31",
-    title: "",
-    time: "09:00",
-    note: "",
-    reminder: true,
-  });
+  const [planDraft, setPlanDraft] = useState(createPlanDraft("2026-03-31"));
   const [editingResourceId, setEditingResourceId] = useState<number | null>(null);
   const [smallGoalDraft, setSmallGoalDraft] = useState("");
   const [editingSmallGoalId, setEditingSmallGoalId] = useState<number | null>(null);
@@ -1063,7 +1222,22 @@ export default function EmberApp() {
     }
 
     if ("serviceWorker" in navigator) {
-      void navigator.serviceWorker.register("/sw.js");
+      void (async () => {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+
+        if (process.env.NODE_ENV !== "production") {
+          await Promise.all(registrations.map((registration) => registration.unregister()));
+          return;
+        }
+
+        const hasEmberRegistration = registrations.some(
+          (registration) => registration.active?.scriptURL?.includes("/sw.js"),
+        );
+
+        if (!hasEmberRegistration) {
+          await navigator.serviceWorker.register("/sw.js");
+        }
+      })();
     }
 
     const handleBeforeInstallPrompt = (event: Event) => {
@@ -1110,16 +1284,13 @@ export default function EmberApp() {
 
       setPlanItems((current) =>
         current.map((item) => {
-          if (
-            item.reminder &&
-            item.dateKey === currentDateKey &&
-            item.time === currentTimeKey &&
-            item.lastReminderDate !== currentDateKey
-          ) {
+          const reminderMatch = getPlanReminderMatch(item, now);
+
+          if (reminderMatch && item.lastReminderKey !== reminderMatch.reminderKey) {
             nextPlanMessage = `Time for: ${item.title}`;
             return {
               ...item,
-              lastReminderDate: currentDateKey,
+              lastReminderKey: reminderMatch.reminderKey,
             };
           }
 
@@ -1153,15 +1324,21 @@ export default function EmberApp() {
   }, [isHydrated]);
 
   const currentTimerMs = timerNowMs ?? 0;
-  const completedActivities = activities.filter((activity) => activity.completed);
+  const visibleActivities = isHydrated ? activities : normalizeActivities(initialActivities);
+  const visibleCheckIns = isHydrated ? checkIns : normalizeCheckIns(initialCheckIns);
+  const visibleResources = isHydrated ? resources : normalizeResources(initialResources);
+  const visiblePlanItems = isHydrated ? planItems : normalizePlanItems(initialPlanItems);
+  const visibleProfile = isHydrated ? profile : initialProfile;
+  const visibleSmallGoals = isHydrated ? smallGoals : normalizeSmallGoals(initialSmallGoals);
+  const completedActivities = visibleActivities.filter((activity) => activity.completed);
   const todaysActivities =
     energyLevel === "Low"
-      ? activities.filter((activity) => activity.lowEnergy).slice(0, 2)
-      : activities;
+      ? visibleActivities.filter((activity) => activity.lowEnergy).slice(0, 2)
+      : visibleActivities;
   const todaysGoals =
     todayKey === null
       ? []
-      : smallGoals.filter((goal) => goal.dateKey === todayKey);
+      : visibleSmallGoals.filter((goal) => goal.dateKey === todayKey);
   const runningActivities = todaysActivities.filter((activity) => activity.timerStartedAt);
   const trackedActivities = todaysActivities.filter(
     (activity) => activity.timerStartedAt || activity.loggedSeconds > 0,
@@ -1176,12 +1353,12 @@ export default function EmberApp() {
     0,
   );
   const weeklyProgress =
-    activities.length > 0
-      ? Math.round((completedActivities.length / activities.length) * 100)
+    visibleActivities.length > 0
+      ? Math.round((completedActivities.length / visibleActivities.length) * 100)
       : 0;
   const streak =
-    todayKey === null ? 0 : calculateStreak(checkIns, hasCompletedToday, todayKey);
-  const journeyGroups = checkIns.reduce<
+    todayKey === null ? 0 : calculateStreak(visibleCheckIns, hasCompletedToday, todayKey);
+  const journeyGroups = visibleCheckIns.reduce<
     Array<{ dateKey: string; label: string; summary: string; entries: CheckIn[] }>
   >((groups, entry) => {
     const existingGroup = groups.find((group) => group.dateKey === entry.dateKey);
@@ -1202,7 +1379,7 @@ export default function EmberApp() {
 
     return groups;
   }, []);
-  const selectedPlanItems = [...planItems]
+  const selectedPlanItems = [...visiblePlanItems]
     .filter((item) => item.dateKey === selectedPlanDateKey)
     .sort((left, right) => left.time.localeCompare(right.time));
   const selectedPlanCompletedCount = selectedPlanItems.filter((item) => item.completed).length;
@@ -1214,12 +1391,13 @@ export default function EmberApp() {
     }
 
     const now = new Date();
+    const entryId = now.getTime();
     const completedSnapshot = completedActivities.map((activity) => ({
       name: activity.name,
       duration: getActivityRecordedMinutes(activity, now.getTime()),
     }));
     const entry: CheckIn = {
-      id: Date.now(),
+      id: entryId,
       dateKey: getTodayKey(),
       timestamp: now.toISOString(),
       feeling: feeling.trim() || "Quiet, still finding words",
@@ -1237,7 +1415,7 @@ export default function EmberApp() {
     setFeeling("");
     setNote("");
     setSaveMessage(
-      saveMessages[Math.floor(Math.random() * saveMessages.length)] ??
+      saveMessages[entryId % saveMessages.length] ??
         "You showed up today. That matters.",
     );
     setExpandedEntryId(entry.id);
@@ -1592,10 +1770,21 @@ export default function EmberApp() {
                 time: planDraft.time,
                 note: noteText,
                 reminder: planDraft.reminder,
-                lastReminderDate:
-                  item.dateKey !== planDraft.dateKey || item.time !== planDraft.time
+                repeat: planDraft.repeat,
+                customRepeatHours:
+                  planDraft.repeat === "custom-hours"
+                    ? getCustomRepeatHours(planDraft.customRepeatHours)
+                    : null,
+                lastReminderKey:
+                  item.dateKey !== planDraft.dateKey ||
+                  item.time !== planDraft.time ||
+                  item.repeat !== planDraft.repeat ||
+                  item.customRepeatHours !==
+                    (planDraft.repeat === "custom-hours"
+                      ? getCustomRepeatHours(planDraft.customRepeatHours)
+                      : null)
                     ? null
-                    : item.lastReminderDate,
+                    : item.lastReminderKey,
               }
             : item,
         ),
@@ -1612,18 +1801,17 @@ export default function EmberApp() {
           note: noteText,
           completed: false,
           reminder: planDraft.reminder,
-          lastReminderDate: null,
+          repeat: planDraft.repeat,
+          customRepeatHours:
+            planDraft.repeat === "custom-hours"
+              ? getCustomRepeatHours(planDraft.customRepeatHours)
+              : null,
+          lastReminderKey: null,
         },
       ]);
     }
 
-    setPlanDraft({
-      dateKey: selectedPlanDateKey,
-      title: "",
-      time: "09:00",
-      note: "",
-      reminder: true,
-    });
+    setPlanDraft(createPlanDraft(selectedPlanDateKey));
   };
 
   const startEditingPlanItem = (item: PlanItem) => {
@@ -1636,6 +1824,8 @@ export default function EmberApp() {
       time: item.time,
       note: item.note,
       reminder: item.reminder,
+      repeat: item.repeat,
+      customRepeatHours: item.customRepeatHours ?? 8,
     });
   };
 
@@ -1644,13 +1834,7 @@ export default function EmberApp() {
 
     if (editingPlanItemId === id) {
       setEditingPlanItemId(null);
-      setPlanDraft({
-        dateKey: selectedPlanDateKey,
-        title: "",
-        time: "09:00",
-        note: "",
-        reminder: true,
-      });
+      setPlanDraft(createPlanDraft(selectedPlanDateKey));
     }
   };
 
@@ -1765,7 +1949,7 @@ export default function EmberApp() {
                 <div>
                   <p className="text-sm font-semibold text-white">Welcome to Ember</p>
                   <p className="mt-1 text-sm text-[#fff1de]">
-                    A gentle start: add your name, one small win, and one activity.
+                    Start with your name, one small win, and one activity.
                   </p>
                 </div>
                 <button
@@ -1807,18 +1991,14 @@ export default function EmberApp() {
           {planReminderMessage ? (
             <section className="relative z-10 rounded-[1.5rem] border border-accent/20 bg-accent-soft px-4 py-4">
               <p className="text-sm font-semibold text-[#fff3e5]">{planReminderMessage}</p>
-              <p className="mt-1 text-sm text-[#f8d8b5]">
-                A gentle nudge for what you planned.
-              </p>
+              <p className="mt-1 text-sm text-[#f8d8b5]">It is time.</p>
             </section>
           ) : null}
 
           {activityReminderMessage ? (
             <section className="relative z-10 rounded-[1.5rem] border border-accent/20 bg-accent-soft px-4 py-4">
               <p className="text-sm font-semibold text-[#fff3e5]">{activityReminderMessage}</p>
-              <p className="mt-1 text-sm text-[#f8d8b5]">
-                A gentle nudge for one of today&apos;s activities.
-              </p>
+              <p className="mt-1 text-sm text-[#f8d8b5]">It is time.</p>
             </section>
           ) : null}
 
@@ -1830,7 +2010,9 @@ export default function EmberApp() {
               Progress, not pressure
             </p>
             <p className="mt-1.5 text-sm text-muted">
-              {profile.name ? `Welcome, ${profile.name}. Keep going. Gently.` : "Keep going. Gently."}
+              {visibleProfile.name
+                ? `Welcome, ${visibleProfile.name}. Keep going. Gently.`
+                : "Keep going. Gently."}
             </p>
           </header>
 
@@ -1891,8 +2073,8 @@ export default function EmberApp() {
                 <h2 className="text-lg font-semibold text-white">Today</h2>
                 <p className="mt-1 text-sm text-[#eef8ff]">
                   {energyLevel === "Low"
-                    ? "A lighter plan is here for you today."
-                    : "A gentle place to move through today, one step at a time."}
+                    ? "A lighter plan is here today."
+                    : "What matters today."}
                 </p>
               </div>
               <button
@@ -1921,9 +2103,7 @@ export default function EmberApp() {
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold text-white">Small win for today</p>
-                  <p className="mt-1 text-xs text-muted">
-                    Keep one gentle goal here, even if it is a small move.
-                  </p>
+                  <p className="mt-1 text-xs text-muted">Set one small goal.</p>
                 </div>
                 <span className="rounded-full border border-white/10 px-2.5 py-1 text-[11px] text-muted">
                   {todaysGoals.filter((goal) => goal.completed).length}/{todaysGoals.length}
@@ -1933,7 +2113,7 @@ export default function EmberApp() {
                 <input
                   className="min-w-0 flex-1 rounded-2xl border border-border bg-card-strong px-4 py-3 text-sm text-white outline-none placeholder:text-muted focus:border-accent"
                   onChange={(event) => setSmallGoalDraft(event.target.value)}
-                  placeholder="Write one small goal"
+                  placeholder="Add a small goal"
                   value={smallGoalDraft}
                 />
                 <button
@@ -1965,7 +2145,7 @@ export default function EmberApp() {
                               ? "Running now"
                               : goal.loggedSeconds > 0
                                 ? "Time recorded"
-                                : "Ready when you are"}
+                                : "Not started"}
                           </p>
                         </div>
                         <div className="text-right">
@@ -1989,7 +2169,7 @@ export default function EmberApp() {
                             onChange={() => toggleSmallGoal(goal.id)}
                             type="checkbox"
                           />
-                          Mark complete
+                          Done
                         </label>
                         <div className="flex items-center gap-2">
                           <button
@@ -2029,9 +2209,7 @@ export default function EmberApp() {
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <p className="text-sm font-semibold text-white">Activity timer</p>
-                    <p className="mt-1 text-xs text-muted">
-                      Keep an eye on what you have already started today.
-                    </p>
+                    <p className="mt-1 text-xs text-muted">Time you have tracked today.</p>
                   </div>
                   {runningActivities.length > 0 ? (
                     <span className="rounded-full border border-accent/25 bg-accent-soft px-2.5 py-1 text-[11px] text-accent">
@@ -2166,7 +2344,7 @@ export default function EmberApp() {
           >
             <h2 className="text-lg font-semibold text-white">Coach</h2>
             <p className="mt-1 text-sm text-[#effff6]">
-              Gentle suggestions you can shape around your energy.
+              Activities you can shape around your energy.
             </p>
             <div className="mt-4 space-y-3">
                 {todaysActivities.map((activity) => (
@@ -2220,7 +2398,7 @@ export default function EmberApp() {
                           onChange={() => toggleActivity(activity.id)}
                           type="checkbox"
                         />
-                        Mark complete
+                        Done
                       </label>
                       <div className="text-right">
                         <p className="font-mono text-base font-semibold text-white">
@@ -2326,20 +2504,14 @@ export default function EmberApp() {
                   {formatPlanDayLabel(selectedPlanDateKey, todayKey)}
                 </p>
                 <p className="mt-2 text-sm text-[#eef7ff]">
-                  Your space for events, appointments, and gentle reminders.
+                  Events, appointments, and reminders.
                 </p>
               </div>
               <button
                 className="rounded-full border border-accent/40 px-4 py-2 text-sm font-semibold text-accent hover:border-accent"
                 onClick={() => {
                   setEditingPlanItemId(null);
-                  setPlanDraft({
-                    dateKey: selectedPlanDateKey,
-                    title: "",
-                    time: "09:00",
-                    note: "",
-                    reminder: true,
-                  });
+                  setPlanDraft(createPlanDraft(selectedPlanDateKey));
                   scrollToPlanTarget("plan-form");
                 }}
                 type="button"
@@ -2369,16 +2541,6 @@ export default function EmberApp() {
               </div>
             </div>
 
-            <div className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-4">
-              <p className="text-sm text-[#eef7ff]">
-                {selectedPlanItems.length > 0
-                  ? nextPlannedItem
-                    ? `${nextPlannedItem.title} is the next gentle thing waiting here.`
-                    : "Everything for this day has been carried already."
-                  : "This day is still open. You can keep it light or add what matters."}
-              </p>
-            </div>
-
             <div className="rounded-2xl border border-border bg-card-strong p-3">
               <div className="mb-3 flex items-center justify-between">
                 <button
@@ -2406,7 +2568,7 @@ export default function EmberApp() {
                   </span>
                 ))}
                 {calendarDays.map((day) => {
-                  const hasItems = planItems.some((item) => item.dateKey === day.dateKey);
+                  const hasItems = visiblePlanItems.some((item) => item.dateKey === day.dateKey);
                   const isSelected = selectedPlanDateKey === day.dateKey;
 
                   return (
@@ -2427,7 +2589,7 @@ export default function EmberApp() {
                           dateKey: day.dateKey,
                         }));
                         scrollToPlanTarget(
-                          planItems.some((item) => item.dateKey === day.dateKey)
+                          visiblePlanItems.some((item) => item.dateKey === day.dateKey)
                             ? "plan-day-items"
                             : "plan-form",
                         );
@@ -2449,9 +2611,7 @@ export default function EmberApp() {
             <div className="scroll-mt-6 space-y-3" id="plan-day-items">
               <div>
                 <p className="text-sm font-semibold text-white">What is held for this day</p>
-                <p className="mt-1 text-sm text-[#eef7ff]">
-                  Appointments, reminders, and small plans stay together here.
-                </p>
+                <p className="mt-1 text-sm text-[#eef7ff]">Your items for this day.</p>
               </div>
               {selectedPlanItems.map((item) => (
                 <div
@@ -2477,7 +2637,9 @@ export default function EmberApp() {
                           </p>
                           <p className="mt-1 text-xs text-[#f8d8b5]">
                             {formatReminderTime(item.time)}
-                            {item.reminder ? " • Reminder on" : ""}
+                            {item.reminder
+                              ? ` • ${formatPlanReminderSummary(item)}`
+                              : ""}
                           </p>
                         </div>
                         <div className="flex items-center gap-2">
@@ -2506,7 +2668,7 @@ export default function EmberApp() {
               ))}
               {selectedPlanItems.length === 0 ? (
                 <p className="rounded-2xl border border-border bg-card-strong px-4 py-4 text-sm text-muted">
-                  Nothing is planned here yet. Add an event, appointment, or small task.
+                  Nothing here yet. Add an event, appointment, or task.
                 </p>
               ) : null}
             </div>
@@ -2517,10 +2679,10 @@ export default function EmberApp() {
             >
               <div>
                 <p className="text-sm font-semibold text-white">
-                  {editingPlanItemId !== null ? "Update this plan" : "Add something for this day"}
+                  {editingPlanItemId !== null ? "Edit item" : "Add item"}
                 </p>
                 <p className="mt-1 text-sm text-muted">
-                  Keep it simple. A time, a title, and anything you want to remember.
+                  Add a title, date, time, and note if you want one.
                 </p>
               </div>
               <input
@@ -2577,6 +2739,53 @@ export default function EmberApp() {
                 <span aria-hidden="true">{planDraft.reminder ? "🔔" : "🔕"}</span>
                 <span>{planDraft.reminder ? "Reminder on" : "Reminder off"}</span>
               </button>
+              {planDraft.reminder ? (
+                <div className="space-y-2">
+                  <label className="block text-xs font-medium uppercase tracking-[0.14em] text-muted">
+                    Reminder schedule
+                  </label>
+                  <select
+                    className="w-full rounded-2xl border border-border bg-transparent px-4 py-3 text-sm text-white outline-none focus:border-accent"
+                    onChange={(event) =>
+                      setPlanDraft((current) => ({
+                        ...current,
+                        repeat: event.target.value as PlanReminderRepeat,
+                      }))
+                    }
+                    value={planDraft.repeat}
+                    >
+                      {planReminderOptions.map((option) => (
+                        <option key={option.value} className="bg-[#11192a] text-white" value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  {planDraft.repeat === "custom-hours" ? (
+                    <div className="space-y-2">
+                      <label className="block text-sm text-muted">
+                        How many hours between reminders?
+                      </label>
+                      <input
+                        className="w-full rounded-2xl border border-border bg-transparent px-4 py-3 text-sm text-white outline-none focus:border-accent"
+                        max="24"
+                        min="1"
+                        onChange={(event) =>
+                          setPlanDraft((current) => ({
+                            ...current,
+                            customRepeatHours: Number(event.target.value) || 1,
+                          }))
+                        }
+                        placeholder="Enter hours"
+                        type="number"
+                        value={planDraft.customRepeatHours}
+                      />
+                      <p className="text-xs text-muted">
+                        Choose a number from 1 to 24.
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
               <textarea
                 className="min-h-24 w-full rounded-2xl border border-border bg-transparent px-4 py-3 text-sm text-white outline-none placeholder:text-muted focus:border-accent"
                 onChange={(event) =>
@@ -2607,13 +2816,13 @@ export default function EmberApp() {
 
               <div className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-4">
                 <p className="text-sm text-[#f6efff]">
-                  Keep the feelings, notes, and small moments that mattered. Nothing here has to be polished to belong.
+                  Your check-ins, notes, and saved links.
                 </p>
               </div>
 
               <div className="rounded-2xl border border-border bg-card-strong px-4 py-4">
                 <p className="text-sm font-semibold text-white">Your days</p>
-                {checkIns.length === 0 ? (
+                {visibleCheckIns.length === 0 ? (
                   <p className="mt-3 rounded-2xl border border-border bg-[#101b2e] px-4 py-4 text-sm leading-6 text-muted">
                     Your journal starts with one small step.
                   </p>
@@ -2656,7 +2865,7 @@ export default function EmberApp() {
                                 <div className="mt-3 flex items-center justify-between gap-3 text-sm">
                                   <p className="text-muted">{buildPreview(entry.note)}</p>
                                   <p className="shrink-0 text-[#f8d8b5]">
-                                    A small step kept
+                                    Saved
                                   </p>
                                 </div>
                               </button>
@@ -2664,7 +2873,7 @@ export default function EmberApp() {
                                 <div className="mt-3 border-t border-border pt-3">
                                   <div className="flex items-center justify-between gap-3">
                                     <p className="text-sm text-muted">
-                                      This moment mattered.
+                                      Entry details
                                     </p>
                                     <div className="flex items-center gap-2">
                                       <button
@@ -2736,7 +2945,7 @@ export default function EmberApp() {
                                   )}
                                   <div className="mt-4">
                                     <p className="text-xs uppercase tracking-[0.18em] text-muted">
-                                      What you carried
+                                      Completed activities
                                     </p>
                                     {entry.completedActivities.length > 0 ? (
                                       <div className="mt-2 space-y-2">
@@ -2774,7 +2983,7 @@ export default function EmberApp() {
               <div className="rounded-2xl border border-border bg-card-strong px-4 py-4">
                 <p className="text-sm font-semibold text-white">Researches and Links</p>
                 <p className="mt-1 text-sm text-muted">
-                  Keep useful things close, and share them when you need to.
+                  Save articles, links, and notes here.
                 </p>
                 {resourceMessage ? (
                   <p className="mt-3 rounded-2xl border border-accent/25 bg-accent-soft px-4 py-3 text-sm text-[#f8d8b5]">
@@ -2782,7 +2991,7 @@ export default function EmberApp() {
                   </p>
                 ) : null}
                 <div className="mt-3 space-y-3">
-                  {resources.map((resource) => (
+                  {visibleResources.map((resource) => (
                     <div
                       key={resource.id}
                       className="rounded-2xl border border-border bg-[#101b2e] px-3 py-3"
@@ -2884,16 +3093,16 @@ export default function EmberApp() {
             <div>
               <h2 className="text-lg font-semibold text-white">Profile</h2>
               <p className="mt-1 text-sm text-[#eef6ff]">
-                Your space for a personal welcome and a few steady health notes.
+                Your name, health notes, and app settings.
               </p>
             </div>
 
             <div className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-4">
               <p className="text-base font-semibold text-white">
-                {profile.name ? `Welcome, ${profile.name}` : "A place that learns your name"}
+                {visibleProfile.name ? `Welcome, ${visibleProfile.name}` : "Welcome"}
               </p>
               <p className="mt-2 text-sm text-[#eef6ff]">
-                Keep the basics that help Ember feel more personal and grounded around your real life.
+                Keep the details you want close by.
               </p>
               <div className="mt-4 flex flex-wrap gap-2">
                 {installPromptEvent ? (
@@ -2936,26 +3145,28 @@ export default function EmberApp() {
             <div className="grid grid-cols-3 gap-2">
               <div className="rounded-2xl border border-white/10 bg-white/[0.05] px-3 py-3">
                 <p className="text-[11px] uppercase tracking-[0.14em] text-[#e7f5ff]">Weight</p>
-                <p className="mt-1 text-sm font-semibold text-white">{profile.weight || "Add"}</p>
+                <p className="mt-1 text-sm font-semibold text-white">
+                  {visibleProfile.weight || "Add"}
+                </p>
               </div>
               <div className="rounded-2xl border border-white/10 bg-white/[0.05] px-3 py-3">
                 <p className="text-[11px] uppercase tracking-[0.14em] text-[#e7f5ff]">Pressure</p>
                 <p className="mt-1 text-sm font-semibold text-white">
-                  {profile.bloodPressure || "Add"}
+                  {visibleProfile.bloodPressure || "Add"}
                 </p>
               </div>
               <div className="rounded-2xl border border-white/10 bg-white/[0.05] px-3 py-3">
                 <p className="text-[11px] uppercase tracking-[0.14em] text-[#e7f5ff]">Heart</p>
-                <p className="mt-1 text-sm font-semibold text-white">{profile.heartRate || "Add"}</p>
+                <p className="mt-1 text-sm font-semibold text-white">
+                  {visibleProfile.heartRate || "Add"}
+                </p>
               </div>
             </div>
 
             <div className="space-y-3 rounded-2xl border border-border bg-card-strong p-3">
               <div>
                 <p className="text-sm font-semibold text-white">Your details</p>
-                <p className="mt-1 text-sm text-muted">
-                  Gentle notes you may want close by.
-                </p>
+                <p className="mt-1 text-sm text-muted">Update your details here.</p>
               </div>
               <input
                 className="w-full rounded-2xl border border-border bg-transparent px-4 py-3 text-sm text-white outline-none placeholder:text-muted focus:border-accent"
@@ -3016,24 +3227,26 @@ export default function EmberApp() {
 
             <div className="rounded-2xl border border-border bg-card-strong px-4 py-4">
               <p className="text-sm font-semibold text-white">
-                {profile.name ? `Hello, ${profile.name}` : "A personal place, ready when you are"}
+                {visibleProfile.name
+                  ? `Hello, ${visibleProfile.name}`
+                  : "A personal place, ready when you are"}
               </p>
               <p className="mt-2 text-sm text-[#eef6ff]">
-                {profile.name
+                {visibleProfile.name
                   ? "Your basics are here when you need them."
                   : "Add your name to make Ember feel more like it knows you."}
               </p>
               <div className="mt-3 space-y-2 text-sm text-[#eef6ff]">
                 <p>
-                  Weight: <span className="text-white">{profile.weight || "Not added yet"}</span>
+                  Weight: <span className="text-white">{visibleProfile.weight || "Not added yet"}</span>
                 </p>
                 <p>
                   Blood pressure:{" "}
-                  <span className="text-white">{profile.bloodPressure || "Not added yet"}</span>
+                  <span className="text-white">{visibleProfile.bloodPressure || "Not added yet"}</span>
                 </p>
                 <p>
                   Heart rate:{" "}
-                  <span className="text-white">{profile.heartRate || "Not added yet"}</span>
+                  <span className="text-white">{visibleProfile.heartRate || "Not added yet"}</span>
                 </p>
               </div>
               {profile.notes ? (
