@@ -51,6 +51,7 @@ type Resource = {
   title: string;
   url: string;
   note: string;
+  tags: string[];
 };
 
 type PlanReminderRepeat =
@@ -814,7 +815,23 @@ function normalizeResources(items: Resource[]) {
     .map((item) => ({
       ...item,
       note: item.note ?? "",
+      tags: Array.isArray(item.tags)
+        ? item.tags
+            .map((tag) => tag.trim())
+            .filter(Boolean)
+        : [],
     }));
+}
+
+function parseTags(value: string) {
+  return Array.from(
+    new Set(
+      value
+        .split(",")
+        .map((tag) => tag.trim())
+        .filter(Boolean),
+    ),
+  );
 }
 
 function normalizeUrl(value: string) {
@@ -959,7 +976,12 @@ export default function EmberApp() {
   const [quoteIndex, setQuoteIndex] = useState(0);
   const [activityDraft, setActivityDraft] = useState({ name: "", duration: "10" });
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [resourceDraft, setResourceDraft] = useState({ title: "", url: "", note: "" });
+  const [resourceDraft, setResourceDraft] = useState({
+    title: "",
+    url: "",
+    note: "",
+    tags: "",
+  });
   const [saveMessage, setSaveMessage] = useState("");
   const [expandedEntryId, setExpandedEntryId] = useState<number | null>(
     initialCheckIns[0]?.id ?? null,
@@ -976,6 +998,7 @@ export default function EmberApp() {
   const [activityReminderMessage, setActivityReminderMessage] = useState("");
   const [planReminderMessage, setPlanReminderMessage] = useState("");
   const [resourceMessage, setResourceMessage] = useState("");
+  const [resourceSearch, setResourceSearch] = useState("");
   const [profileMessage, setProfileMessage] = useState("");
   const [isHydrated, setIsHydrated] = useState(false);
   const [todayKey, setTodayKey] = useState<string | null>(null);
@@ -1349,6 +1372,18 @@ export default function EmberApp() {
   const selectedPlanCompletedCount = selectedPlanItems.filter((item) => item.completed).length;
   const nextPlannedItem = selectedPlanItems.find((item) => !item.completed) ?? null;
   const calendarDays = buildCalendarDays(calendarMonthKey);
+  const filteredResources = visibleResources.filter((resource) => {
+    const search = resourceSearch.trim().toLowerCase();
+
+    if (!search) {
+      return true;
+    }
+
+    return [resource.title, resource.url, resource.note, resource.tags.join(" ")]
+      .join(" ")
+      .toLowerCase()
+      .includes(search);
+  });
   const saveCheckIn = () => {
     if (!feeling.trim() && !note.trim()) {
       return;
@@ -1595,6 +1630,7 @@ export default function EmberApp() {
     const title = resourceDraft.title.trim();
     const url = normalizeUrl(resourceDraft.url);
     const note = resourceDraft.note.trim();
+    const tags = parseTags(resourceDraft.tags);
 
     if (!title || !url) {
       return;
@@ -1604,16 +1640,16 @@ export default function EmberApp() {
       setResources((current) =>
         current.map((resource) =>
           resource.id === editingResourceId
-            ? { ...resource, title, url, note }
+            ? { ...resource, title, url, note, tags }
             : resource,
         ),
       );
       setEditingResourceId(null);
     } else {
-      setResources((current) => [...current, { id: Date.now(), title, url, note }]);
+      setResources((current) => [...current, { id: Date.now(), title, url, note, tags }]);
     }
 
-    setResourceDraft({ title: "", url: "", note: "" });
+    setResourceDraft({ title: "", url: "", note: "", tags: "" });
   };
 
   const startEditingResource = (resource: Resource) => {
@@ -1622,6 +1658,7 @@ export default function EmberApp() {
       title: resource.title,
       url: resource.url,
       note: resource.note,
+      tags: resource.tags.join(", "),
     });
   };
 
@@ -1630,14 +1667,15 @@ export default function EmberApp() {
 
     if (editingResourceId === id) {
       setEditingResourceId(null);
-      setResourceDraft({ title: "", url: "", note: "" });
+      setResourceDraft({ title: "", url: "", note: "", tags: "" });
     }
   };
 
   const shareResource = async (resource: Resource) => {
+    const tagsText = resource.tags.length > 0 ? `\nTags: ${resource.tags.join(", ")}` : "";
     const shareText = resource.note
-      ? `${resource.title}\n\n${resource.note}\n\n${resource.url}`
-      : `${resource.title}\n\n${resource.url}`;
+      ? `${resource.title}${tagsText}\n\n${resource.note}\n\n${resource.url}`
+      : `${resource.title}${tagsText}\n\n${resource.url}`;
 
     try {
       if (navigator.share) {
@@ -2954,8 +2992,14 @@ export default function EmberApp() {
                     {resourceMessage}
                   </p>
                 ) : null}
+                <input
+                  className="mt-3 w-full rounded-2xl border border-border bg-transparent px-4 py-3 text-sm text-white outline-none placeholder:text-muted focus:border-accent"
+                  onChange={(event) => setResourceSearch(event.target.value)}
+                  placeholder="Search by title, note, or tag"
+                  value={resourceSearch}
+                />
                 <div className="mt-3 space-y-3">
-                  {visibleResources.map((resource) => (
+                  {filteredResources.map((resource) => (
                     <div
                       key={resource.id}
                       className="rounded-2xl border border-border bg-[#101b2e] px-3 py-3"
@@ -2974,6 +3018,18 @@ export default function EmberApp() {
                           <p className="whitespace-normal break-words text-sm leading-6 text-[#eef6ff]">
                             {resource.note}
                           </p>
+                        ) : null}
+                        {resource.tags.length > 0 ? (
+                          <div className="flex flex-wrap gap-2">
+                            {resource.tags.map((tag) => (
+                              <span
+                                key={`${resource.id}-${tag}`}
+                                className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11px] text-[#d9e8ff]"
+                              >
+                                #{tag}
+                              </span>
+                            ))}
+                          </div>
                         ) : null}
                         <div className="flex flex-wrap items-center gap-2">
                           <button
@@ -3027,6 +3083,17 @@ export default function EmberApp() {
                     placeholder="https://"
                     type="url"
                     value={resourceDraft.url}
+                  />
+                  <input
+                    className="w-full rounded-2xl border border-border bg-transparent px-4 py-3 text-sm text-white outline-none placeholder:text-muted focus:border-accent"
+                    onChange={(event) =>
+                      setResourceDraft((current) => ({
+                        ...current,
+                        tags: event.target.value,
+                      }))
+                    }
+                    placeholder="Tags, separated by commas"
+                    value={resourceDraft.tags}
                   />
                   <textarea
                     className="min-h-24 w-full rounded-2xl border border-border bg-transparent px-4 py-3 text-sm text-white outline-none placeholder:text-muted focus:border-accent"
