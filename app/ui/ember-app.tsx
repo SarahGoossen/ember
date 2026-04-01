@@ -298,7 +298,7 @@ const initialActivities: Activity[] = [
     id: 1,
     name: "Morning stretch",
     duration: 10,
-    completed: true,
+    completed: false,
     loggedSeconds: 0,
     timerStartedAt: null,
     lowEnergy: true,
@@ -321,7 +321,7 @@ const initialActivities: Activity[] = [
     id: 3,
     name: "Breathing reset",
     duration: 5,
-    completed: true,
+    completed: false,
     loggedSeconds: 0,
     timerStartedAt: null,
     lowEnergy: true,
@@ -342,33 +342,7 @@ const initialActivities: Activity[] = [
   },
 ];
 
-const initialCheckIns: CheckIn[] = [
-  {
-    id: 1,
-    dateKey: "2026-03-31",
-    timestamp: "2026-03-31T20:15:00.000Z",
-    feeling: "Steady, a little tired",
-    note: "Took things slowly and still made progress.",
-    date: "Mar 31 • 8:15 PM",
-    energyLevel: "Okay",
-    completedActivities: [
-      { name: "Morning stretch", duration: 10 },
-      { name: "Breathing reset", duration: 5 },
-    ],
-    completedMinutes: 15,
-  },
-  {
-    id: 2,
-    dateKey: "2026-03-30",
-    timestamp: "2026-03-30T18:40:00.000Z",
-    feeling: "Heavy, but hopeful",
-    note: "A short walk helped me feel less stuck.",
-    date: "Mar 30 • 6:40 PM",
-    energyLevel: "Low",
-    completedActivities: [{ name: "Gentle walk", duration: 20 }],
-    completedMinutes: 20,
-  },
-];
+const initialCheckIns: CheckIn[] = [];
 
 const initialResources: Resource[] = [];
 
@@ -471,6 +445,19 @@ function loadStoredState<T>(key: string, fallback: T): T {
 
 function normalizeCheckIns(entries: CheckIn[]) {
   return entries
+    .filter(
+      (entry) =>
+        !(
+          entry.dateKey === "2026-03-31" &&
+          entry.feeling === "Steady, a little tired" &&
+          entry.note === "Took things slowly and still made progress."
+        ) &&
+        !(
+          entry.dateKey === "2026-03-30" &&
+          entry.feeling === "Heavy, but hopeful" &&
+          entry.note === "A short walk helped me feel less stuck."
+        ),
+    )
     .map((entry) => ({
       ...entry,
       timestamp: entry.timestamp ?? `${entry.dateKey}T12:00:00.000Z`,
@@ -1939,67 +1926,6 @@ export default function EmberApp() {
 
   const showOnboarding = isHydrated && !onboardingDismissed && !profile.name.trim();
 
-  if (!isHydrated) {
-    return (
-      <main className="ember-app min-h-screen bg-background px-4 py-5 text-foreground">
-        <div className="ember-shell mx-auto flex w-full max-w-sm flex-col rounded-[2rem] border border-border bg-[linear-gradient(180deg,rgba(19,31,52,0.98),rgba(10,17,30,0.98))] shadow-[0_24px_80px_rgba(0,0,0,0.45)]">
-          <div className="ember-content flex-1 space-y-5 px-4 pb-32 pt-6">
-            <header
-              className="rounded-[1.75rem] border border-[rgba(116,201,255,0.26)] bg-[linear-gradient(160deg,rgba(28,70,123,0.96),rgba(38,52,102,0.96))] px-5 py-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
-              id="home"
-            >
-              <p className="font-serif text-[1.75rem] leading-tight text-white">
-                Progress, not pressure
-              </p>
-              <p className="mt-1.5 text-sm text-muted">Keep going. Gently.</p>
-            </header>
-
-            <section
-              className="rounded-[1.6rem] border border-[rgba(183,181,255,0.28)] bg-[linear-gradient(145deg,rgba(58,83,148,0.92),rgba(72,64,130,0.92))] px-4 py-3.5"
-              id="inspire"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-xs uppercase tracking-[0.18em] text-muted">Inspire</p>
-                  <p className="mt-1.5 font-serif text-lg leading-snug text-white">
-                    {inspireMoments[0]?.quote}
-                  </p>
-                  <p className="mt-1.5 text-sm text-muted">
-                    {inspireMoments[0]?.note}
-                  </p>
-                </div>
-              </div>
-            </section>
-
-            <section className="grid grid-cols-3 gap-2.5">
-              <StatCard
-                className="min-h-[5.75rem] px-2.5 py-2.5"
-                icon="🔥"
-                label="Streak"
-                tone="rose"
-                value="0 days"
-              />
-              <StatCard
-                className="min-h-[5.75rem] px-2.5 py-2.5"
-                icon="⏱"
-                label="Today"
-                tone="violet"
-                value="0 min"
-              />
-              <StatCard
-                className="min-h-[5.75rem] px-2.5 py-2.5"
-                icon="📊"
-                label="Weekly"
-                tone="indigo"
-                value="0%"
-              />
-            </section>
-          </div>
-        </div>
-      </main>
-    );
-  }
-
   return (
     <main className="ember-app min-h-screen bg-background px-4 py-5 text-foreground">
       <div className="ember-shell mx-auto flex w-full max-w-sm flex-col rounded-[2rem] border border-border bg-[linear-gradient(180deg,rgba(19,31,52,0.98),rgba(10,17,30,0.98))] shadow-[0_24px_80px_rgba(0,0,0,0.45)]">
@@ -2104,7 +2030,6 @@ export default function EmberApp() {
           <section className="grid grid-cols-3 gap-2.5">
             <StatCard
               className="min-h-[5.75rem] px-2.5 py-2.5"
-              detail="Days with one completed activity"
               icon="🔥"
               label="Streak"
               tone="rose"
@@ -3349,7 +3274,6 @@ export default function EmberApp() {
 
 function StatCard({
   className,
-  detail,
   icon,
   label,
   onClick,
@@ -3357,7 +3281,6 @@ function StatCard({
   value,
 }: {
   className?: string;
-  detail?: string;
   icon: string;
   label: string;
   onClick?: () => void;
@@ -3386,7 +3309,6 @@ function StatCard({
         </div>
         <p className={`mt-3 text-xs tracking-[0.08em] ${accentClass}`}>{label}</p>
         <p className="mt-1 text-sm font-semibold text-white">{value}</p>
-        {detail ? <p className="mt-1 text-[11px] text-muted">{detail}</p> : null}
       </button>
     );
   }
@@ -3398,7 +3320,6 @@ function StatCard({
       <p className={`text-base ${accentClass}`}>{icon}</p>
       <p className={`mt-2 text-[11px] tracking-[0.08em] ${accentClass}`}>{label}</p>
       <p className="mt-1 text-[13px] font-semibold text-white">{value}</p>
-      {detail ? <p className="mt-1 text-[10px] leading-4 text-muted">{detail}</p> : null}
     </article>
   );
 }
