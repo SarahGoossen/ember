@@ -293,54 +293,7 @@ const saveMessages = [
   "One day at a time.",
 ];
 
-const initialActivities: Activity[] = [
-  {
-    id: 1,
-    name: "Morning stretch",
-    duration: 10,
-    completed: false,
-    loggedSeconds: 0,
-    timerStartedAt: null,
-    lowEnergy: true,
-    reminder: true,
-    reminderTime: "08:30",
-    lastReminderDate: null,
-  },
-  {
-    id: 2,
-    name: "Gentle walk",
-    duration: 20,
-    completed: false,
-    loggedSeconds: 0,
-    timerStartedAt: null,
-    reminder: false,
-    reminderTime: "12:00",
-    lastReminderDate: null,
-  },
-  {
-    id: 3,
-    name: "Breathing reset",
-    duration: 5,
-    completed: false,
-    loggedSeconds: 0,
-    timerStartedAt: null,
-    lowEnergy: true,
-    reminder: true,
-    reminderTime: "15:00",
-    lastReminderDate: null,
-  },
-  {
-    id: 4,
-    name: "Evening journal",
-    duration: 15,
-    completed: false,
-    loggedSeconds: 0,
-    timerStartedAt: null,
-    reminder: false,
-    reminderTime: "20:00",
-    lastReminderDate: null,
-  },
-];
+const initialActivities: Activity[] = [];
 
 const initialCheckIns: CheckIn[] = [];
 
@@ -801,14 +754,38 @@ function normalizePlanItems(items: PlanItem[]) {
 }
 
 function normalizeActivities(items: Activity[]) {
-  return items.map((item) => ({
-    ...item,
-    loggedSeconds: item.loggedSeconds ?? 0,
-    timerStartedAt: item.timerStartedAt ?? null,
-    reminder: item.reminder ?? false,
-    reminderTime: item.reminderTime ?? "09:00",
-    lastReminderDate: item.lastReminderDate ?? null,
-  }));
+  return items
+    .filter(
+      (item) =>
+        !(
+          item.name === "Morning stretch" &&
+          item.duration === 10 &&
+          item.reminderTime === "08:30"
+        ) &&
+        !(
+          item.name === "Gentle walk" &&
+          item.duration === 20 &&
+          item.reminderTime === "12:00"
+        ) &&
+        !(
+          item.name === "Breathing reset" &&
+          item.duration === 5 &&
+          item.reminderTime === "15:00"
+        ) &&
+        !(
+          item.name === "Evening journal" &&
+          item.duration === 15 &&
+          item.reminderTime === "20:00"
+        ),
+    )
+    .map((item) => ({
+      ...item,
+      loggedSeconds: item.loggedSeconds ?? 0,
+      timerStartedAt: item.timerStartedAt ?? null,
+      reminder: item.reminder ?? false,
+      reminderTime: item.reminderTime ?? "09:00",
+      lastReminderDate: item.lastReminderDate ?? null,
+    }));
 }
 
 function normalizeSmallGoals(items: SmallGoal[]) {
