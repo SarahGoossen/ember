@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { Session } from "@supabase/supabase-js";
+import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase-browser";
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
@@ -84,77 +86,88 @@ type Profile = {
   notes: string;
 };
 
+type EmberCloudSnapshot = {
+  version: 1;
+  activities: Activity[];
+  checkIns: CheckIn[];
+  resources: Resource[];
+  planItems: PlanItem[];
+  profile: Profile;
+  smallGoals: SmallGoal[];
+  onboardingDismissed: boolean;
+};
+
 const inspireMoments = [
   {
-    quote: "A new day can hold something good.",
-    note: "You do not have to do everything to feel proud of today.",
+    quote: "A bright start can begin right here.",
+    note: "One good step is enough to get moving.",
   },
   {
-    quote: "You are allowed to feel hopeful here.",
-    note: "Good things can grow slowly and still be real.",
+    quote: "Today has something good in it for you.",
+    note: "Go meet it with one small move.",
   },
   {
-    quote: "Little wins can brighten a whole day.",
-    note: "Start with one, and let it count.",
+    quote: "Little wins can light up a whole day.",
+    note: "Start with one and let it count.",
   },
   {
-    quote: "You have more strength than this moment can measure.",
-    note: "It is already in you.",
+    quote: "You have more spark than you think.",
+    note: "Let a little of it lead today.",
   },
   {
-    quote: "There is still good ahead of you.",
-    note: "Today can be one small step toward it.",
+    quote: "Something good is waiting on the other side of starting.",
+    note: "Begin where you are.",
   },
   {
-    quote: "A small start is still a real start.",
+    quote: "A small start still counts as starting.",
     note: "Forward is forward.",
   },
   {
-    quote: "You can begin again as many times as you need.",
-    note: "That is part of growing.",
+    quote: "You can begin again and make it a good one.",
+    note: "Fresh starts look good on you.",
   },
   {
-    quote: "There is lightness waiting for you too.",
-    note: "It can show up in simple moments.",
+    quote: "There is more light in this day than you think.",
+    note: "Look for the bright little moments.",
   },
   {
-    quote: "A calmer day can start with one good choice.",
-    note: "Let the next step be enough.",
+    quote: "A good day can begin with one clear choice.",
+    note: "Let the next step be enough for now.",
   },
   {
-    quote: "You are building something steady.",
-    note: "It may be quiet, but it is real.",
+    quote: "You are building something steady and strong.",
+    note: "It is taking shape with every small step.",
   },
   {
-    quote: "There is room for joy in recovery too.",
-    note: "It does not have to wait for perfect days.",
+    quote: "There is room for joy in ordinary days too.",
+    note: "You do not need a perfect day to feel good.",
   },
   {
-    quote: "A better stretch of days can begin here.",
+    quote: "A better stretch of days can start today.",
     note: "One choice at a time.",
   },
   {
-    quote: "Your pace can still take you somewhere beautiful.",
-    note: "Slow does not mean stuck.",
+    quote: "Your pace can still take you somewhere wonderful.",
+    note: "Keep going your way.",
   },
   {
-    quote: "You are doing more than you think.",
-    note: "Small effort adds up quietly.",
+    quote: "You are doing better than you give yourself credit for.",
+    note: "Small effort adds up beautifully.",
   },
   {
-    quote: "This day still has possibility in it.",
+    quote: "This day has plenty of possibility in it.",
     note: "Let one good thing happen on purpose.",
   },
   {
-    quote: "You can carry both tiredness and hope.",
-    note: "They can live in the same day.",
+    quote: "A little rest and a little momentum can go together.",
+    note: "Take both with you today.",
   },
   {
     quote: "There is something lovely about starting small.",
-    note: "It keeps the door open.",
+    note: "It keeps good things moving.",
   },
   {
-    quote: "Today can still surprise you in a good way.",
+    quote: "Today might surprise you in the best way.",
     note: "Leave a little room for that.",
   },
   {
@@ -162,12 +175,12 @@ const inspireMoments = [
     note: "Your timeline still counts.",
   },
   {
-    quote: "Your effort is making room for brighter days.",
-    note: "Even now.",
+    quote: "Your effort is making today brighter already.",
+    note: "Keep going.",
   },
   {
     quote: "A little energy can go a long way.",
-    note: "Use it for what matters most.",
+    note: "Use it on something that feels good.",
   },
   {
     quote: "You can feel proud of showing up.",
@@ -178,23 +191,23 @@ const inspireMoments = [
     note: "Keep it simple and keep it going.",
   },
   {
-    quote: "A kind day can begin with one kind choice.",
+    quote: "A bright day can begin with one good choice.",
     note: "Start there.",
   },
   {
     quote: "You are allowed to look forward.",
-    note: "Hope belongs here too.",
+    note: "Good things belong here too.",
   },
   {
-    quote: "The next chapter does not have to be heavy.",
-    note: "It can be lighter than the last.",
+    quote: "The next chapter can feel fresh and full of life.",
+    note: "Turn the page and see what opens up.",
   },
   {
-    quote: "There is courage in trying again today.",
-    note: "That courage matters.",
+    quote: "There is courage in getting going today.",
+    note: "That spark matters.",
   },
   {
-    quote: "You are closer to steadiness than you think.",
+    quote: "You are closer to a good rhythm than you think.",
     note: "Keep going.",
   },
   {
@@ -202,7 +215,7 @@ const inspireMoments = [
     note: "One piece is enough to begin.",
   },
   {
-    quote: "You can make today a little better.",
+    quote: "You can make today a little brighter.",
     note: "That is more than enough.",
   },
   {
@@ -210,31 +223,31 @@ const inspireMoments = [
     note: "Even if it is a small one.",
   },
   {
-    quote: "There is still warmth in this season.",
+    quote: "There is still plenty to smile about today.",
     note: "Look for the small bright parts.",
   },
   {
     quote: "You are allowed to feel lighter little by little.",
-    note: "It does not have to happen all at once.",
+    note: "Good things can build one step at a time.",
   },
   {
-    quote: "A hopeful day can start in ordinary ways.",
+    quote: "A good day can start in ordinary ways.",
     note: "A glass of water. A walk. A breath.",
   },
   {
-    quote: "You have not missed your chance to feel better.",
+    quote: "It is a great day to begin again.",
     note: "It can start from here.",
   },
   {
     quote: "Your small routines can become real support.",
-    note: "They are working more than you know.",
+    note: "They are helping more than you know.",
   },
   {
-    quote: "There is something strong in your consistency.",
+    quote: "There is something powerful in your consistency.",
     note: "Even quiet consistency shines.",
   },
   {
-    quote: "You are making space for better moments.",
+    quote: "You are making space for more good moments.",
     note: "That matters.",
   },
   {
@@ -246,7 +259,7 @@ const inspireMoments = [
     note: "Let yourself notice it.",
   },
   {
-    quote: "You can be both healing and hopeful.",
+    quote: "You can feel hopeful and ready to move.",
     note: "Both belong here.",
   },
   {
@@ -258,7 +271,7 @@ const inspireMoments = [
     note: "Right now, as you are.",
   },
   {
-    quote: "You are creating your way back to yourself.",
+    quote: "You are creating a day worth smiling about.",
     note: "Step by step.",
   },
   {
@@ -266,11 +279,11 @@ const inspireMoments = [
     note: "Let it stay with you today.",
   },
   {
-    quote: "There is a lot of life still waiting for you.",
+    quote: "There is a lot of good still waiting for you.",
     note: "Keep making room for it.",
   },
   {
-    quote: "You can still have a good day from here.",
+    quote: "You can still have a really good day from here.",
     note: "One next step can change the tone of it.",
   },
   {
@@ -283,7 +296,7 @@ const inspireMoments = [
   },
   {
     quote: "You are still becoming, and that is beautiful.",
-    note: "There is more good ahead.",
+    note: "There is more to smile about ahead.",
   },
 ];
 
@@ -314,9 +327,9 @@ const initialSmallGoals: SmallGoal[] = [];
 
 const tabs: { id: TabId; label: string }[] = [
   { id: "home", label: "Home" },
-  { id: "coach", label: "Coach" },
-  { id: "plan", label: "Plan" },
-  { id: "journey", label: "Journal" },
+  { id: "coach", label: "Routine" },
+  { id: "plan", label: "Calendar" },
+  { id: "journey", label: "Reflect" },
   { id: "profile", label: "Profile" },
 ];
 
@@ -962,7 +975,76 @@ function createPlanDraft(dateKey: string) {
   };
 }
 
+function buildSnapshot({
+  activities,
+  checkIns,
+  resources,
+  planItems,
+  profile,
+  smallGoals,
+  onboardingDismissed,
+}: {
+  activities: Activity[];
+  checkIns: CheckIn[];
+  resources: Resource[];
+  planItems: PlanItem[];
+  profile: Profile;
+  smallGoals: SmallGoal[];
+  onboardingDismissed: boolean;
+}): EmberCloudSnapshot {
+  return {
+    version: 1,
+    activities,
+    checkIns,
+    resources,
+    planItems,
+    profile,
+    smallGoals,
+    onboardingDismissed,
+  };
+}
+
+function applySnapshot(snapshot: Partial<EmberCloudSnapshot> | null | undefined) {
+  return {
+    activities: normalizeActivities(snapshot?.activities ?? initialActivities),
+    checkIns: normalizeCheckIns(snapshot?.checkIns ?? initialCheckIns),
+    resources: normalizeResources(snapshot?.resources ?? initialResources),
+    planItems: normalizePlanItems(snapshot?.planItems ?? initialPlanItems),
+    profile: snapshot?.profile ?? initialProfile,
+    smallGoals: normalizeSmallGoals(snapshot?.smallGoals ?? initialSmallGoals),
+    onboardingDismissed: snapshot?.onboardingDismissed ?? false,
+  };
+}
+
+function hasMeaningfulSnapshotData(snapshot: EmberCloudSnapshot) {
+  return Boolean(
+    snapshot.activities.length ||
+      snapshot.checkIns.length ||
+      snapshot.resources.length ||
+      snapshot.planItems.length ||
+      snapshot.smallGoals.length ||
+      snapshot.profile.name.trim() ||
+      snapshot.profile.weight.trim() ||
+      snapshot.profile.bloodPressure.trim() ||
+      snapshot.profile.heartRate.trim() ||
+      snapshot.profile.notes.trim(),
+  );
+}
+
 export default function EmberApp() {
+  const supabase = useMemo(() => getSupabaseBrowserClient(), []);
+  const cloudSaveTimeoutRef = useRef<number | null>(null);
+  const currentSnapshotRef = useRef<EmberCloudSnapshot>(
+    buildSnapshot({
+      activities: normalizeActivities(initialActivities),
+      checkIns: normalizeCheckIns(initialCheckIns),
+      resources: normalizeResources(initialResources),
+      planItems: normalizePlanItems(initialPlanItems),
+      profile: initialProfile,
+      smallGoals: normalizeSmallGoals(initialSmallGoals),
+      onboardingDismissed: false,
+    }),
+  );
   const [activeTab, setActiveTab] = useState<TabId>("home");
   const [activities, setActivities] = useState<Activity[]>(normalizeActivities(initialActivities));
   const [checkIns, setCheckIns] = useState<CheckIn[]>(initialCheckIns);
@@ -999,8 +1081,17 @@ export default function EmberApp() {
   const [planReminderMessage, setPlanReminderMessage] = useState("");
   const [resourceMessage, setResourceMessage] = useState("");
   const [resourceSearch, setResourceSearch] = useState("");
+  const [reflectSearch, setReflectSearch] = useState("");
   const [profileMessage, setProfileMessage] = useState("");
+  const [cloudMessage, setCloudMessage] = useState("");
+  const [cloudEmail, setCloudEmail] = useState("");
+  const [cloudUserEmail, setCloudUserEmail] = useState("");
+  const [cloudUserId, setCloudUserId] = useState<string | null>(null);
+  const [cloudStatus, setCloudStatus] = useState<
+    "idle" | "connecting" | "saving" | "saved" | "error"
+  >("idle");
   const [isHydrated, setIsHydrated] = useState(false);
+  const [isCloudLoaded, setIsCloudLoaded] = useState(!isSupabaseConfigured());
   const [todayKey, setTodayKey] = useState<string | null>(null);
   const [selectedPlanDateKey, setSelectedPlanDateKey] = useState("2026-03-31");
   const [calendarMonthKey, setCalendarMonthKey] = useState("2026-03");
@@ -1054,6 +1145,127 @@ export default function EmberApp() {
 
     return () => window.clearTimeout(timeoutId);
   }, []);
+
+  useEffect(() => {
+    if (!isHydrated) {
+      return;
+    }
+
+    if (!supabase) {
+      return;
+    }
+
+    let isActive = true;
+
+    const syncSession = async (session: Session | null) => {
+      if (!isActive) {
+        return;
+      }
+
+      if (!session?.user) {
+        setCloudUserId(null);
+        setCloudUserEmail("");
+        setCloudStatus("idle");
+        setIsCloudLoaded(true);
+        return;
+      }
+
+      setCloudUserId(session.user.id);
+      setCloudUserEmail(session.user.email ?? "");
+      setCloudStatus("connecting");
+
+      const localSnapshot = currentSnapshotRef.current;
+
+      const { data, error } = await supabase
+        .from("ember_app_state")
+        .select("data")
+        .eq("user_id", session.user.id)
+        .maybeSingle();
+
+      if (!isActive) {
+        return;
+      }
+
+      if (error) {
+        setCloudStatus("error");
+        setCloudMessage("Cloud save could not load yet.");
+        setIsCloudLoaded(true);
+        return;
+      }
+
+      const remoteState = applySnapshot(
+        (data?.data as Partial<EmberCloudSnapshot> | null | undefined) ?? null,
+      );
+      const remoteSnapshot = buildSnapshot(remoteState);
+
+      if (hasMeaningfulSnapshotData(remoteSnapshot)) {
+        setActivities(remoteState.activities);
+        setCheckIns(remoteState.checkIns);
+        setResources(remoteState.resources);
+        setPlanItems(remoteState.planItems);
+        setProfile(remoteState.profile);
+        setSmallGoals(remoteState.smallGoals);
+        setOnboardingDismissed(remoteState.onboardingDismissed);
+        setCloudStatus("saved");
+        setCloudMessage("Cloud save is on.");
+        setIsCloudLoaded(true);
+        return;
+      }
+
+      if (hasMeaningfulSnapshotData(localSnapshot)) {
+        const { error: saveError } = await supabase.from("ember_app_state").upsert(
+          {
+            user_id: session.user.id,
+            data: localSnapshot,
+          },
+          {
+            onConflict: "user_id",
+          },
+        );
+
+        if (!isActive) {
+          return;
+        }
+
+        if (saveError) {
+          setCloudStatus("error");
+          setCloudMessage("Cloud save could not start yet.");
+          setIsCloudLoaded(true);
+          return;
+        }
+      }
+
+      setCloudStatus("saved");
+      setCloudMessage("Cloud save is on.");
+      setIsCloudLoaded(true);
+    };
+
+    void supabase.auth.getSession().then(({ data, error }) => {
+      if (!isActive) {
+        return;
+      }
+
+      if (error) {
+        setCloudStatus("error");
+        setCloudMessage("Cloud save could not connect yet.");
+        setIsCloudLoaded(true);
+        return;
+      }
+
+      void syncSession(data.session);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      void syncSession(session);
+    });
+
+    return () => {
+      isActive = false;
+      subscription.unsubscribe();
+    };
+  }, [isHydrated, supabase]);
 
   useEffect(() => {
     if (!isHydrated) {
@@ -1115,6 +1327,80 @@ export default function EmberApp() {
   }, [onboardingDismissed, isHydrated]);
 
   useEffect(() => {
+    currentSnapshotRef.current = buildSnapshot({
+      activities,
+      checkIns,
+      resources,
+      planItems,
+      profile,
+      smallGoals,
+      onboardingDismissed,
+    });
+  }, [activities, checkIns, resources, planItems, profile, smallGoals, onboardingDismissed]);
+
+  useEffect(() => {
+    if (!isHydrated || !supabase || !cloudUserId || !isCloudLoaded) {
+      return;
+    }
+
+    if (cloudSaveTimeoutRef.current !== null) {
+      window.clearTimeout(cloudSaveTimeoutRef.current);
+    }
+
+    cloudSaveTimeoutRef.current = window.setTimeout(() => {
+      setCloudStatus("saving");
+      const snapshot = buildSnapshot({
+        activities,
+        checkIns,
+        resources,
+        planItems,
+        profile,
+        smallGoals,
+        onboardingDismissed,
+      });
+
+      void (async () => {
+        const { error } = await supabase.from("ember_app_state").upsert(
+          {
+            user_id: cloudUserId,
+            data: snapshot,
+          },
+          {
+            onConflict: "user_id",
+          },
+        );
+
+        if (error) {
+          setCloudStatus("error");
+          setCloudMessage("Cloud save is having trouble right now.");
+          return;
+        }
+
+        setCloudStatus("saved");
+      })();
+    }, 900);
+
+    return () => {
+      if (cloudSaveTimeoutRef.current !== null) {
+        window.clearTimeout(cloudSaveTimeoutRef.current);
+        cloudSaveTimeoutRef.current = null;
+      }
+    };
+  }, [
+    activities,
+    checkIns,
+    resources,
+    planItems,
+    profile,
+    smallGoals,
+    onboardingDismissed,
+    isHydrated,
+    supabase,
+    cloudUserId,
+    isCloudLoaded,
+  ]);
+
+  useEffect(() => {
     if (!saveMessage) {
       return;
     }
@@ -1173,6 +1459,18 @@ export default function EmberApp() {
 
     return () => window.clearTimeout(timeoutId);
   }, [profileMessage]);
+
+  useEffect(() => {
+    if (!cloudMessage) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setCloudMessage("");
+    }, 3200);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [cloudMessage]);
 
   useEffect(() => {
     if (animatedActivityId === null) {
@@ -1317,6 +1615,7 @@ export default function EmberApp() {
   const visiblePlanItems = isHydrated ? planItems : normalizePlanItems(initialPlanItems);
   const visibleProfile = isHydrated ? profile : initialProfile;
   const visibleSmallGoals = isHydrated ? smallGoals : normalizeSmallGoals(initialSmallGoals);
+  const cloudEnabled = isSupabaseConfigured();
   const completedActivities = visibleActivities.filter((activity) => activity.completed);
   const todaysActivities =
     energyLevel === "Low"
@@ -1366,6 +1665,40 @@ export default function EmberApp() {
 
     return groups;
   }, []);
+  const filteredJourneyGroups = journeyGroups
+    .map((group) => {
+      const search = reflectSearch.trim().toLowerCase();
+
+      if (!search) {
+        return group;
+      }
+
+      const entries = group.entries.filter((entry) =>
+        [
+          group.label,
+          group.dateKey,
+          entry.date,
+          entry.feeling,
+          entry.note,
+          entry.energyLevel ?? "",
+          entry.completedActivities.map((activity) => activity.name).join(" "),
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(search),
+      );
+
+      if (entries.length === 0) {
+        return null;
+      }
+
+      return {
+        ...group,
+        entries,
+        summary: getDaySummary(entries, group.label),
+      };
+    })
+    .filter(Boolean) as typeof journeyGroups;
   const selectedPlanItems = [...visiblePlanItems]
     .filter((item) => item.dateKey === selectedPlanDateKey)
     .sort((left, right) => left.time.localeCompare(right.time));
@@ -1384,6 +1717,16 @@ export default function EmberApp() {
       .toLowerCase()
       .includes(search);
   });
+  const cloudStatusText =
+    cloudStatus === "connecting"
+      ? "Connecting..."
+      : cloudStatus === "saving"
+        ? "Saving..."
+        : cloudStatus === "saved"
+          ? "Synced"
+          : cloudStatus === "error"
+            ? "Needs attention"
+            : "Ready";
   const saveCheckIn = () => {
     if (!feeling.trim() && !note.trim()) {
       return;
@@ -1714,6 +2057,57 @@ export default function EmberApp() {
     }
 
     setProfileMessage("Notifications stayed off.");
+  };
+
+  const sendCloudLink = async () => {
+    const email = cloudEmail.trim();
+
+    if (!supabase) {
+      setCloudMessage("Connect Supabase first.");
+      return;
+    }
+
+    if (!email) {
+      setCloudMessage("Add your email first.");
+      return;
+    }
+
+    setCloudStatus("connecting");
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo: window.location.href,
+      },
+    });
+
+    if (error) {
+      setCloudStatus("error");
+      setCloudMessage("That sign-in link did not go through.");
+      return;
+    }
+
+    setCloudStatus("idle");
+    setCloudMessage("Check your email for the sign-in link.");
+    setCloudEmail("");
+  };
+
+  const signOutCloud = async () => {
+    if (!supabase) {
+      return;
+    }
+
+    const { error } = await supabase.auth.signOut();
+
+    if (error) {
+      setCloudStatus("error");
+      setCloudMessage("Sign out did not finish.");
+      return;
+    }
+
+    setCloudUserId(null);
+    setCloudUserEmail("");
+    setCloudStatus("idle");
+    setCloudMessage("Signed out. Your local copy stays on this device.");
   };
 
   const exportBackup = () => {
@@ -2262,6 +2656,9 @@ export default function EmberApp() {
             id="check-in"
           >
             <h2 className="text-lg font-semibold text-white">Today&apos;s Check-in</h2>
+            <p className="mt-1 text-sm text-[#f6efff]">
+              Save how today felt, then revisit it in Reflect.
+            </p>
             <div className="mt-3 space-y-3">
               <label className="block">
                 <span className="mb-2 block text-sm text-muted">Energy today</span>
@@ -2344,9 +2741,9 @@ export default function EmberApp() {
             className="rounded-[1.75rem] border border-[rgba(126,238,154,0.28)] bg-[linear-gradient(150deg,rgba(26,92,61,0.92),rgba(36,70,102,0.94))] px-4 py-4"
             id="coach"
           >
-            <h2 className="text-lg font-semibold text-white">Coach</h2>
+            <h2 className="text-lg font-semibold text-white">Routine</h2>
             <p className="mt-1 text-sm text-[#effff6]">
-              Activities you can shape around your energy.
+              Add your activities here, then come back to them each day.
             </p>
             <div className="mt-4 space-y-3">
                 {todaysActivities.map((activity) => (
@@ -2501,12 +2898,12 @@ export default function EmberApp() {
           >
             <div className="flex items-center justify-between gap-3">
               <div>
-                <h2 className="text-lg font-semibold text-white">Plan</h2>
+                <h2 className="text-lg font-semibold text-white">Calendar</h2>
                 <p className="mt-1 text-sm text-muted">
                   {formatPlanDayLabel(selectedPlanDateKey, todayKey)}
                 </p>
                 <p className="mt-2 text-sm text-[#eef7ff]">
-                  Events, appointments, and reminders.
+                  Keep your appointments, events, and reminders in one place.
                 </p>
               </div>
               <button
@@ -2612,8 +3009,8 @@ export default function EmberApp() {
 
             <div className="scroll-mt-6 space-y-3" id="plan-day-items">
               <div>
-                <p className="text-sm font-semibold text-white">What is held for this day</p>
-                <p className="mt-1 text-sm text-[#eef7ff]">Your items for this day.</p>
+                <p className="text-sm font-semibold text-white">What is on this day</p>
+                <p className="mt-1 text-sm text-[#eef7ff]">Everything you have saved for this date.</p>
               </div>
               {selectedPlanItems.map((item) => (
                 <div
@@ -2684,7 +3081,7 @@ export default function EmberApp() {
                   {editingPlanItemId !== null ? "Edit item" : "Add item"}
                 </p>
                 <p className="mt-1 text-sm text-muted">
-                  Add a title, date, time, and note if you want one.
+                  Add a title, date, time, and an optional note.
                 </p>
               </div>
               <input
@@ -2813,24 +3210,30 @@ export default function EmberApp() {
             className="space-y-4 rounded-[1.75rem] border border-[rgba(195,132,255,0.3)] bg-[linear-gradient(150deg,rgba(93,54,145,0.92),rgba(54,55,104,0.94))] px-4 py-4"
             id="journey"
           >
-              <h2 className="text-lg font-semibold text-white">Journal</h2>
-              <p className="text-sm text-[#f4ebff]">A place to reflect on your day.</p>
-
-              <div className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-4">
-                <p className="text-sm text-[#f6efff]">
-                  Your check-ins, notes, and saved links.
-                </p>
-              </div>
+              <h2 className="text-lg font-semibold text-white">Reflect</h2>
+              <p className="text-sm text-[#f4ebff]">
+                A place to connect the dots of your days.
+              </p>
 
               <div className="rounded-2xl border border-border bg-card-strong px-4 py-4">
-                <p className="text-sm font-semibold text-white">Your days</p>
-                {visibleCheckIns.length === 0 ? (
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-white">Your days</p>
+                  <input
+                    className="w-full max-w-[11rem] rounded-2xl border border-border bg-transparent px-4 py-2.5 text-sm text-white outline-none placeholder:text-muted focus:border-accent"
+                    onChange={(event) => setReflectSearch(event.target.value)}
+                    placeholder="Search date, feeling, or note"
+                    value={reflectSearch}
+                  />
+                </div>
+                {filteredJourneyGroups.length === 0 ? (
                   <p className="mt-3 rounded-2xl border border-border bg-[#101b2e] px-4 py-4 text-sm leading-6 text-muted">
-                    Your journal starts with one small step.
+                    {reflectSearch.trim()
+                      ? "Nothing matched this search yet."
+                      : "Your reflections will gather here over time."}
                   </p>
                 ) : (
                   <div className="mt-3 space-y-5">
-                    {journeyGroups.map((group) => (
+                    {filteredJourneyGroups.map((group) => (
                       <section key={group.dateKey} className="space-y-3">
                         <div className="px-1">
                           <p className="text-xs uppercase tracking-[0.18em] text-muted">
@@ -3124,8 +3527,71 @@ export default function EmberApp() {
             <div>
               <h2 className="text-lg font-semibold text-white">Profile</h2>
               <p className="mt-1 text-sm text-[#eef6ff]">
-                Your name, health notes, and app settings.
+                Your details, health notes, and app settings.
               </p>
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-base font-semibold text-white">Cloud save</p>
+                  <p className="mt-1 text-sm text-[#eef6ff]">
+                    Set up cloud save to keep your data across devices and updates.
+                  </p>
+                  <p className="mt-2 text-xs text-[#d9e8ff]">
+                    Set it up once to keep your entries saved to your private account, where they stay with you and are only visible to you.
+                  </p>
+                </div>
+                <span className="rounded-full border border-white/12 px-3 py-1 text-xs text-[#eef6ff]">
+                  {cloudStatusText}
+                </span>
+              </div>
+              {!cloudEnabled ? (
+                <p className="mt-3 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-[#eef6ff]">
+                  Cloud save will be ready after Supabase is connected.
+                </p>
+              ) : cloudUserId ? (
+                <div className="mt-3 space-y-3">
+                  <p className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-[#eef6ff]">
+                    Signed in as <span className="text-white">{cloudUserEmail}</span>
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      className="rounded-full border border-white/14 px-4 py-2 text-sm font-semibold text-[#eef6ff] hover:text-white"
+                      onClick={() => {
+                        void signOutCloud();
+                      }}
+                      type="button"
+                    >
+                      Sign out
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-3 space-y-3">
+                  <input
+                    className="w-full rounded-2xl border border-border bg-transparent px-4 py-3 text-sm text-white outline-none placeholder:text-muted focus:border-accent"
+                    onChange={(event) => setCloudEmail(event.target.value)}
+                    placeholder="Email for private cloud save"
+                    type="email"
+                    value={cloudEmail}
+                  />
+                  <button
+                    className="w-full rounded-2xl border border-accent/40 px-4 py-3 text-sm font-semibold text-accent hover:border-accent"
+                    onClick={() => {
+                      void sendCloudLink();
+                    }}
+                    type="button"
+                  >
+                    Set up cloud save
+                  </button>
+                </div>
+              )}
+              {cloudMessage ? (
+                <p className="mt-3 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-[#eef6ff]">
+                  {cloudMessage}
+                </p>
+              ) : null}
             </div>
 
             <div className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-4">
@@ -3197,7 +3663,7 @@ export default function EmberApp() {
             <div className="space-y-3 rounded-2xl border border-border bg-card-strong p-3">
               <div>
                 <p className="text-sm font-semibold text-white">Your details</p>
-                <p className="mt-1 text-sm text-muted">Update your details here.</p>
+                <p className="mt-1 text-sm text-muted">Add or update the details you want Ember to keep.</p>
               </div>
               <input
                 className="w-full rounded-2xl border border-border bg-transparent px-4 py-3 text-sm text-white outline-none placeholder:text-muted focus:border-accent"
