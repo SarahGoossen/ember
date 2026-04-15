@@ -470,6 +470,19 @@ function getRandomInspireIndex(previousIndex?: number) {
   return nextIndex;
 }
 
+function formatCloudError(
+  error: { message?: string | null; code?: string | null } | null | undefined,
+  fallback: string,
+) {
+  const details = error?.message?.trim();
+
+  if (!details) {
+    return fallback;
+  }
+
+  return `${fallback} ${details}`;
+}
+
 function formatReminderTime(value: string) {
   const [hoursText, minutesText] = value.split(":");
   const hours = Number(hoursText);
@@ -1331,7 +1344,9 @@ export default function EmberApp() {
 
       if (error) {
         setCloudStatus("error");
-        setCloudMessage("Cloud save could not load yet.");
+        setCloudMessage(
+          formatCloudError(error, "Cloud save could not load yet."),
+        );
         setIsCloudLoaded(true);
         return;
       }
@@ -1372,7 +1387,9 @@ export default function EmberApp() {
 
         if (saveError) {
           setCloudStatus("error");
-          setCloudMessage("Cloud save could not start yet.");
+          setCloudMessage(
+            formatCloudError(saveError, "Cloud save could not start yet."),
+          );
           setIsCloudLoaded(true);
           return;
         }
@@ -1390,7 +1407,9 @@ export default function EmberApp() {
 
       if (error) {
         setCloudStatus("error");
-        setCloudMessage("Cloud save could not connect yet.");
+        setCloudMessage(
+          formatCloudError(error, "Cloud save could not connect yet."),
+        );
         setIsCloudLoaded(true);
         return;
       }
@@ -1515,7 +1534,9 @@ export default function EmberApp() {
 
         if (error) {
           setCloudStatus("error");
-          setCloudMessage("Cloud save is having trouble right now.");
+          setCloudMessage(
+            formatCloudError(error, "Cloud save is having trouble right now."),
+          );
           return;
         }
 
@@ -2250,7 +2271,9 @@ export default function EmberApp() {
 
     if (error) {
       setCloudStatus("error");
-      setCloudMessage("That sign-in link did not go through.");
+      setCloudMessage(
+        formatCloudError(error, "That sign-in link did not go through."),
+      );
       return;
     }
 
@@ -2268,7 +2291,9 @@ export default function EmberApp() {
 
     if (error) {
       setCloudStatus("error");
-      setCloudMessage("Sign out did not finish.");
+      setCloudMessage(
+        formatCloudError(error, "Sign out did not finish."),
+      );
       return;
     }
 
