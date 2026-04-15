@@ -2596,6 +2596,16 @@ export default function EmberApp() {
             </section>
           ) : null}
 
+          <section className="rounded-[1.6rem] border border-[rgba(255,255,255,0.1)] bg-[linear-gradient(150deg,rgba(19,50,90,0.88),rgba(34,44,88,0.92))] px-4 py-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-[#dff6ff]">Welcome</p>
+            <p className="mt-2 font-serif text-[1.5rem] leading-tight text-white">
+              {visibleProfile.name ? `Hi, ${visibleProfile.name}` : "Hi there"}
+            </p>
+            <p className="mt-1.5 text-sm text-muted">
+              Let&apos;s make today feel a little clearer and lighter.
+            </p>
+          </section>
+
           <section
             className="rounded-[1.6rem] border border-[rgba(183,181,255,0.28)] bg-[linear-gradient(145deg,rgba(58,83,148,0.92),rgba(72,64,130,0.92))] px-4 py-3.5"
             id="inspire"
