@@ -678,25 +678,32 @@ function getActivityHistoryEntry(
   return activity.history.find((entry) => entry.dateKey === dateKey);
 }
 
-function getActivityTrackedSeconds(
-  activity: Activity,
+function getTrackedSeconds(
+  item: Pick<SmallGoal, "loggedSeconds" | "timerStartedAt">,
   nowMs: number,
-  dateKey: string,
 ) {
-  const entry = getActivityHistoryEntry(activity, dateKey);
-  const baseSeconds = entry?.loggedSeconds ?? 0;
+  const baseSeconds = item.loggedSeconds ?? 0;
 
-  if (!entry?.timerStartedAt) {
+  if (!item.timerStartedAt) {
     return baseSeconds;
   }
 
-  const startedAtMs = new Date(entry.timerStartedAt).getTime();
+  const startedAtMs = new Date(item.timerStartedAt).getTime();
 
   if (Number.isNaN(startedAtMs)) {
     return baseSeconds;
   }
 
   return baseSeconds + Math.max(0, Math.floor((nowMs - startedAtMs) / 1000));
+}
+
+function getActivityTrackedSeconds(
+  activity: Activity,
+  nowMs: number,
+  dateKey: string,
+) {
+  const entry = getActivityHistoryEntry(activity, dateKey);
+  return entry ? getTrackedSeconds(entry, nowMs) : 0;
 }
 
 function getActivityRecordedMinutes(activity: Activity, nowMs: number, dateKey: string) {
@@ -2737,7 +2744,7 @@ export default function EmberApp() {
                         <div className="text-right">
                           <p className="font-mono text-base font-semibold text-white">
                             {goal.timerStartedAt
-                              ? formatTimerDuration(getActivityTrackedSeconds(goal, currentTimerMs))
+                              ? formatTimerDuration(getTrackedSeconds(goal, currentTimerMs))
                               : goal.loggedSeconds > 0
                                 ? formatTimerDuration(goal.loggedSeconds)
                                 : "00:00"}
