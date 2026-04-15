@@ -9,7 +9,7 @@ type BeforeInstallPromptEvent = Event & {
   userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
 };
 
-type TabId = "home" | "coach" | "plan" | "journey" | "profile";
+type TabId = "home" | "coach" | "journey" | "resource" | "profile";
 
 type Activity = {
   id: number;
@@ -21,7 +21,18 @@ type Activity = {
   lowEnergy?: boolean;
   reminder: boolean;
   reminderTime: string;
-  lastReminderDate: string | null;
+  repeat: PlanReminderRepeat;
+  customRepeatHours: number | null;
+  reminderStartDateKey: string;
+  lastReminderKey: string | null;
+  history: ActivityHistoryEntry[];
+};
+
+type ActivityHistoryEntry = {
+  dateKey: string;
+  completed: boolean;
+  loggedSeconds: number;
+  timerStartedAt: string | null;
 };
 
 type SmallGoal = {
@@ -59,6 +70,7 @@ type Resource = {
 type PlanReminderRepeat =
   | "none"
   | "daily"
+  | "weekly"
   | "monthly"
   | "yearly"
   | "every-4-hours"
@@ -328,8 +340,8 @@ const initialSmallGoals: SmallGoal[] = [];
 const tabs: { id: TabId; label: string }[] = [
   { id: "home", label: "Home" },
   { id: "coach", label: "Routine" },
-  { id: "plan", label: "Calendar" },
   { id: "journey", label: "Reflect" },
+  { id: "resource", label: "Resource" },
   { id: "profile", label: "Profile" },
 ];
 
@@ -371,6 +383,7 @@ const weekdayLabels = ["S", "M", "T", "W", "T", "F", "S"];
 const planReminderOptions: Array<{ value: PlanReminderRepeat; label: string }> = [
   { value: "none", label: "Once" },
   { value: "daily", label: "Daily" },
+  { value: "weekly", label: "Weekly" },
   { value: "monthly", label: "Monthly" },
   { value: "yearly", label: "Yearly" },
   { value: "every-4-hours", label: "Every 4 hours" },
@@ -443,44 +456,6 @@ function normalizeCheckIns(entries: CheckIn[]) {
     );
 }
 
-function buildPreview(note: string) {
-  if (!note.trim()) {
-    return "No notes saved for this day.";
-  }
-
-  return note.length > 90 ? `${note.slice(0, 90)}...` : note;
-}
-
-function calculateStreak(
-  checkIns: CheckIn[],
-  hasCompletedToday: boolean,
-  currentDayKey: string,
-) {
-  if (!hasCompletedToday) {
-    return 0;
-  }
-
-  const days = new Set(
-    checkIns
-      .filter(
-        (entry) =>
-          entry.completedActivities.length > 0 || (entry.completedMinutes ?? 0) > 0,
-      )
-      .map((entry) => entry.dateKey),
-  );
-  days.add(currentDayKey);
-  let streak = 0;
-  let cursor = new Date(`${currentDayKey}T12:00:00`);
-
-  while (days.has(cursor.toISOString().slice(0, 10))) {
-    streak += 1;
-    cursor = new Date(cursor);
-    cursor.setDate(cursor.getDate() - 1);
-  }
-
-  return streak;
-}
-
 function getRandomInspireIndex(previousIndex?: number) {
   if (inspireMoments.length <= 1) {
     return 0;
@@ -525,7 +500,9 @@ function getCustomRepeatHours(value: number | null | undefined) {
   return Math.min(24, Math.max(1, Math.round(value)));
 }
 
-function formatPlanReminderSummary(item: Pick<PlanItem, "reminder" | "repeat" | "customRepeatHours">) {
+function formatReminderSummary(
+  item: Pick<PlanItem, "reminder" | "repeat" | "customRepeatHours">,
+) {
   if (!item.reminder) {
     return "";
   }
@@ -592,6 +569,23 @@ function getPlanReminderMatch(item: PlanItem, now: Date) {
     return null;
   }
 
+  if (item.repeat === "weekly") {
+    const startDate = buildLocalDateTime(item.dateKey, item.time);
+
+    if (now < startDate) {
+      return null;
+    }
+
+    if (now.getDay() === startDate.getDay() && item.time === currentTimeKey) {
+      const weekStart = new Date(now);
+      weekStart.setHours(0, 0, 0, 0);
+      weekStart.setDate(now.getDate() - now.getDay());
+      return { reminderKey: weekStart.toISOString().slice(0, 10) };
+    }
+
+    return null;
+  }
+
   if (item.repeat === "yearly") {
     const startDate = buildLocalDateTime(item.dateKey, item.time);
 
@@ -646,14 +640,44 @@ function getPlanReminderMatch(item: PlanItem, now: Date) {
   return null;
 }
 
-function getActivityTrackedSeconds(activity: Pick<Activity, "loggedSeconds" | "timerStartedAt">, nowMs: number) {
-  const baseSeconds = activity.loggedSeconds ?? 0;
+function getActivityReminderMatch(item: Activity, now: Date) {
+  return getPlanReminderMatch(
+    {
+      id: item.id,
+      dateKey: item.reminderStartDateKey,
+      title: item.name,
+      time: item.reminderTime,
+      note: "",
+      completed: item.completed,
+      reminder: item.reminder,
+      repeat: item.repeat,
+      customRepeatHours: item.customRepeatHours,
+      lastReminderKey: item.lastReminderKey,
+    },
+    now,
+  );
+}
 
-  if (!activity.timerStartedAt) {
+function getActivityHistoryEntry(
+  activity: Activity,
+  dateKey: string,
+): ActivityHistoryEntry | undefined {
+  return activity.history.find((entry) => entry.dateKey === dateKey);
+}
+
+function getActivityTrackedSeconds(
+  activity: Activity,
+  nowMs: number,
+  dateKey: string,
+) {
+  const entry = getActivityHistoryEntry(activity, dateKey);
+  const baseSeconds = entry?.loggedSeconds ?? 0;
+
+  if (!entry?.timerStartedAt) {
     return baseSeconds;
   }
 
-  const startedAtMs = new Date(activity.timerStartedAt).getTime();
+  const startedAtMs = new Date(entry.timerStartedAt).getTime();
 
   if (Number.isNaN(startedAtMs)) {
     return baseSeconds;
@@ -662,14 +686,99 @@ function getActivityTrackedSeconds(activity: Pick<Activity, "loggedSeconds" | "t
   return baseSeconds + Math.max(0, Math.floor((nowMs - startedAtMs) / 1000));
 }
 
-function getActivityRecordedMinutes(activity: Activity, nowMs: number) {
-  const trackedSeconds = getActivityTrackedSeconds(activity, nowMs);
+function getActivityRecordedMinutes(activity: Activity, nowMs: number, dateKey: string) {
+  const trackedSeconds = getActivityTrackedSeconds(activity, nowMs, dateKey);
 
   if (trackedSeconds > 0) {
     return Math.max(1, Math.round(trackedSeconds / 60));
   }
 
-  return activity.completed ? activity.duration : 0;
+  return getActivityHistoryEntry(activity, dateKey)?.completed ? activity.duration : 0;
+}
+
+function hasActivityProgress(activity: Activity, nowMs: number, dateKey: string) {
+  const entry = getActivityHistoryEntry(activity, dateKey);
+
+  if (!entry) {
+    return false;
+  }
+
+  return entry.completed || getActivityTrackedSeconds(activity, nowMs, dateKey) > 0;
+}
+
+function updateActivityHistoryEntry(
+  activity: Activity,
+  dateKey: string,
+  updates: Partial<ActivityHistoryEntry>,
+) {
+  const existingEntry = getActivityHistoryEntry(activity, dateKey);
+  const nextEntry: ActivityHistoryEntry = {
+    dateKey,
+    completed: existingEntry?.completed ?? false,
+    loggedSeconds: existingEntry?.loggedSeconds ?? 0,
+    timerStartedAt: existingEntry?.timerStartedAt ?? null,
+    ...updates,
+  };
+
+  const remainingEntries = activity.history.filter((entry) => entry.dateKey !== dateKey);
+
+  return {
+    ...activity,
+    completed: nextEntry.completed,
+    loggedSeconds: nextEntry.loggedSeconds,
+    timerStartedAt: nextEntry.timerStartedAt,
+    history: [...remainingEntries, nextEntry].sort((left, right) =>
+      left.dateKey.localeCompare(right.dateKey),
+    ),
+  };
+}
+
+function calculateRoutineStreak(
+  activities: Activity[],
+  currentDayKey: string,
+  nowMs: number,
+) {
+  const days = new Set<string>();
+
+  activities.forEach((activity) => {
+    activity.history.forEach((entry) => {
+      if (
+        entry.completed ||
+        entry.loggedSeconds > 0 ||
+        (entry.dateKey === currentDayKey &&
+          getActivityTrackedSeconds(activity, nowMs, currentDayKey) > 0)
+      ) {
+        days.add(entry.dateKey);
+      }
+    });
+  });
+
+  if (!days.has(currentDayKey)) {
+    return 0;
+  }
+
+  let streak = 0;
+  let cursor = new Date(`${currentDayKey}T12:00:00`);
+
+  while (days.has(cursor.toISOString().slice(0, 10))) {
+    streak += 1;
+    cursor = new Date(cursor);
+    cursor.setDate(cursor.getDate() - 1);
+  }
+
+  return streak;
+}
+
+function getWeekDateKeys(currentDayKey: string) {
+  const currentDate = new Date(`${currentDayKey}T12:00:00`);
+  const weekStart = new Date(currentDate);
+  weekStart.setDate(currentDate.getDate() - currentDate.getDay());
+
+  return Array.from({ length: currentDate.getDay() + 1 }, (_, index) => {
+    const date = new Date(weekStart);
+    date.setDate(weekStart.getDate() + index);
+    return date.toISOString().slice(0, 10);
+  });
 }
 
 function formatTimerDuration(totalSeconds: number) {
@@ -792,14 +901,45 @@ function normalizeActivities(items: Activity[]) {
           item.reminderTime === "20:00"
         ),
     )
-    .map((item) => ({
-      ...item,
-      loggedSeconds: item.loggedSeconds ?? 0,
-      timerStartedAt: item.timerStartedAt ?? null,
-      reminder: item.reminder ?? false,
-      reminderTime: item.reminderTime ?? "09:00",
-      lastReminderDate: item.lastReminderDate ?? null,
-    }));
+    .map((item) => {
+      const legacyDateKey = getTodayKey();
+      const legacyHistory =
+        item.history && item.history.length > 0
+          ? item.history
+          : item.completed || item.loggedSeconds > 0 || item.timerStartedAt
+            ? [
+                {
+                  dateKey: legacyDateKey,
+                  completed: item.completed ?? false,
+                  loggedSeconds: item.loggedSeconds ?? 0,
+                  timerStartedAt: item.timerStartedAt ?? null,
+                },
+              ]
+            : [];
+
+      return {
+        ...item,
+        loggedSeconds: item.loggedSeconds ?? 0,
+        timerStartedAt: item.timerStartedAt ?? null,
+        reminder: item.reminder ?? false,
+        reminderTime: item.reminderTime ?? "09:00",
+        repeat: item.repeat ?? "daily",
+        customRepeatHours: item.customRepeatHours ?? null,
+        reminderStartDateKey: item.reminderStartDateKey ?? getTodayKey(),
+        lastReminderKey:
+          item.lastReminderKey ??
+          (item as { lastReminderDate?: string | null }).lastReminderDate ??
+          null,
+        history: legacyHistory
+          .map((entry) => ({
+            dateKey: entry.dateKey,
+            completed: entry.completed ?? false,
+            loggedSeconds: entry.loggedSeconds ?? 0,
+            timerStartedAt: entry.timerStartedAt ?? null,
+          }))
+          .sort((left, right) => left.dateKey.localeCompare(right.dateKey)),
+      };
+    });
 }
 
 function normalizeSmallGoals(items: SmallGoal[]) {
@@ -1068,6 +1208,9 @@ export default function EmberApp() {
   const [expandedEntryId, setExpandedEntryId] = useState<number | null>(
     initialCheckIns[0]?.id ?? null,
   );
+  const [expandedPlanItemId, setExpandedPlanItemId] = useState<number | null>(null);
+  const [expandedRoutineId, setExpandedRoutineId] = useState<number | null>(null);
+  const [expandedResourceId, setExpandedResourceId] = useState<number | null>(null);
   const [animatedActivityId, setAnimatedActivityId] = useState<number | null>(null);
   const [checkedActivityId, setCheckedActivityId] = useState<number | null>(null);
   const [editingEntryId, setEditingEntryId] = useState<number | null>(null);
@@ -1486,8 +1629,11 @@ export default function EmberApp() {
   }, [animatedActivityId]);
 
   useEffect(() => {
+    const activeDateKey = todayKey ?? getTodayKey();
     const hasRunningTimer =
-      activities.some((activity) => activity.timerStartedAt !== null) ||
+      activities.some(
+        (activity) => getActivityHistoryEntry(activity, activeDateKey)?.timerStartedAt !== null,
+      ) ||
       smallGoals.some((goal) => goal.timerStartedAt !== null);
 
     if (!hasRunningTimer) {
@@ -1499,7 +1645,7 @@ export default function EmberApp() {
     }, 1000);
 
     return () => window.clearInterval(intervalId);
-  }, [activities, smallGoals]);
+  }, [activities, smallGoals, todayKey]);
 
   useEffect(() => {
     if (!isHydrated) {
@@ -1544,22 +1690,18 @@ export default function EmberApp() {
 
     const checkReminders = () => {
       const now = new Date();
-      const currentDateKey = getTodayKey();
-      const currentTimeKey = getCurrentTimeKey(now);
       let nextPlanMessage = "";
       let nextActivityMessage = "";
 
       setActivities((current) =>
         current.map((item) => {
-          if (
-            item.reminder &&
-            item.reminderTime === currentTimeKey &&
-            item.lastReminderDate !== currentDateKey
-          ) {
+          const reminderMatch = getActivityReminderMatch(item, now);
+
+          if (reminderMatch && item.lastReminderKey !== reminderMatch.reminderKey) {
             nextActivityMessage = `Time for: ${item.name}`;
             return {
               ...item,
-              lastReminderDate: currentDateKey,
+              lastReminderKey: reminderMatch.reminderKey,
             };
           }
 
@@ -1616,7 +1758,10 @@ export default function EmberApp() {
   const visibleProfile = isHydrated ? profile : initialProfile;
   const visibleSmallGoals = isHydrated ? smallGoals : normalizeSmallGoals(initialSmallGoals);
   const cloudEnabled = isSupabaseConfigured();
-  const completedActivities = visibleActivities.filter((activity) => activity.completed);
+  const activeDateKey = todayKey ?? getTodayKey();
+  const completedActivities = visibleActivities.filter((activity) =>
+    hasActivityProgress(activity, currentTimerMs, activeDateKey),
+  );
   const todaysActivities =
     energyLevel === "Low"
       ? visibleActivities.filter((activity) => activity.lowEnergy).slice(0, 2)
@@ -1625,25 +1770,22 @@ export default function EmberApp() {
     todayKey === null
       ? []
       : visibleSmallGoals.filter((goal) => goal.dateKey === todayKey);
-  const runningActivities = todaysActivities.filter((activity) => activity.timerStartedAt);
-  const trackedActivities = todaysActivities.filter(
-    (activity) => activity.timerStartedAt || activity.loggedSeconds > 0,
-  );
-  const hasCompletedToday = completedActivities.length > 0;
   const minutesToday = completedActivities.reduce(
-    (total, activity) => total + getActivityRecordedMinutes(activity, currentTimerMs),
+    (total, activity) => total + getActivityRecordedMinutes(activity, currentTimerMs, activeDateKey),
     0,
   );
-  const todaysPlannedMinutes = todaysActivities.reduce(
-    (total, activity) => total + activity.duration,
+  const weekDateKeys = getWeekDateKeys(activeDateKey);
+  const weeklyCompletedCount = visibleActivities.reduce(
+    (total, activity) =>
+      total +
+      weekDateKeys.filter((dateKey) => hasActivityProgress(activity, currentTimerMs, dateKey))
+        .length,
     0,
   );
+  const weeklyTargetCount = visibleActivities.length * weekDateKeys.length;
   const weeklyProgress =
-    visibleActivities.length > 0
-      ? Math.round((completedActivities.length / visibleActivities.length) * 100)
-      : 0;
-  const streak =
-    todayKey === null ? 0 : calculateStreak(visibleCheckIns, hasCompletedToday, todayKey);
+    weeklyTargetCount > 0 ? Math.round((weeklyCompletedCount / weeklyTargetCount) * 100) : 0;
+  const streak = calculateRoutineStreak(visibleActivities, activeDateKey, currentTimerMs);
   const journeyGroups = visibleCheckIns.reduce<
     Array<{ dateKey: string; label: string; summary: string; entries: CheckIn[] }>
   >((groups, entry) => {
@@ -1703,7 +1845,7 @@ export default function EmberApp() {
     .filter((item) => item.dateKey === selectedPlanDateKey)
     .sort((left, right) => left.time.localeCompare(right.time));
   const selectedPlanCompletedCount = selectedPlanItems.filter((item) => item.completed).length;
-  const nextPlannedItem = selectedPlanItems.find((item) => !item.completed) ?? null;
+  const selectedPlanReminderCount = selectedPlanItems.filter((item) => item.reminder).length;
   const calendarDays = buildCalendarDays(calendarMonthKey);
   const filteredResources = visibleResources.filter((resource) => {
     const search = resourceSearch.trim().toLowerCase();
@@ -1734,13 +1876,14 @@ export default function EmberApp() {
 
     const now = new Date();
     const entryId = now.getTime();
+    const currentDateKey = getTodayKey();
     const completedSnapshot = completedActivities.map((activity) => ({
       name: activity.name,
-      duration: getActivityRecordedMinutes(activity, now.getTime()),
+      duration: getActivityRecordedMinutes(activity, now.getTime(), currentDateKey),
     }));
     const entry: CheckIn = {
       id: entryId,
-      dateKey: getTodayKey(),
+      dateKey: currentDateKey,
       timestamp: now.toISOString(),
       feeling: feeling.trim() || "Quiet, still finding words",
       note: note.trim(),
@@ -1764,6 +1907,7 @@ export default function EmberApp() {
   };
 
   const toggleActivity = (id: number) => {
+    const currentDateKey = getTodayKey();
     let nextCompleted = false;
 
     setActivities((current) =>
@@ -1772,11 +1916,10 @@ export default function EmberApp() {
           return activity;
         }
 
-        nextCompleted = !activity.completed;
-        return {
-          ...activity,
+        nextCompleted = !getActivityHistoryEntry(activity, currentDateKey)?.completed;
+        return updateActivityHistoryEntry(activity, currentDateKey, {
           completed: nextCompleted,
-        };
+        });
       }),
     );
 
@@ -1791,6 +1934,7 @@ export default function EmberApp() {
 
   const toggleActivityTimer = (id: number) => {
     const now = new Date();
+    const currentDateKey = getTodayKey();
     setTimerNowMs(now.getTime());
 
     setActivities((current) =>
@@ -1799,23 +1943,23 @@ export default function EmberApp() {
           return activity;
         }
 
-        if (activity.timerStartedAt) {
-          const startedAtMs = new Date(activity.timerStartedAt).getTime();
+        const currentEntry = getActivityHistoryEntry(activity, currentDateKey);
+
+        if (currentEntry?.timerStartedAt) {
+          const startedAtMs = new Date(currentEntry.timerStartedAt).getTime();
           const elapsedSeconds = Number.isNaN(startedAtMs)
             ? 0
             : Math.max(0, Math.floor((now.getTime() - startedAtMs) / 1000));
 
-          return {
-            ...activity,
-            loggedSeconds: activity.loggedSeconds + elapsedSeconds,
+          return updateActivityHistoryEntry(activity, currentDateKey, {
+            loggedSeconds: (currentEntry?.loggedSeconds ?? 0) + elapsedSeconds,
             timerStartedAt: null,
-          };
+          });
         }
 
-        return {
-          ...activity,
+        return updateActivityHistoryEntry(activity, currentDateKey, {
           timerStartedAt: now.toISOString(),
-        };
+        });
       }),
     );
   };
@@ -1849,7 +1993,11 @@ export default function EmberApp() {
           timerStartedAt: null,
           reminder: false,
           reminderTime: "09:00",
-          lastReminderDate: null,
+          repeat: "daily",
+          customRepeatHours: 8,
+          reminderStartDateKey: getTodayKey(),
+          lastReminderKey: null,
+          history: [],
         },
       ]);
     }
@@ -1859,6 +2007,7 @@ export default function EmberApp() {
 
   const startEditActivity = (activity: Activity) => {
     setEditingId(activity.id);
+    setExpandedRoutineId(activity.id);
     setActivityDraft({
       name: activity.name,
       duration: String(activity.duration),
@@ -1867,7 +2016,17 @@ export default function EmberApp() {
 
   const updateActivityReminder = (
     id: number,
-    updates: Partial<Pick<Activity, "reminder" | "reminderTime" | "lastReminderDate">>,
+    updates: Partial<
+      Pick<
+        Activity,
+        | "reminder"
+        | "reminderTime"
+        | "repeat"
+        | "customRepeatHours"
+        | "reminderStartDateKey"
+        | "lastReminderKey"
+      >
+    >,
   ) => {
     setActivities((current) =>
       current.map((activity) =>
@@ -1882,6 +2041,10 @@ export default function EmberApp() {
     if (editingId === id) {
       setEditingId(null);
       setActivityDraft({ name: "", duration: "10" });
+    }
+
+    if (expandedRoutineId === id) {
+      setExpandedRoutineId(null);
     }
   };
 
@@ -1997,6 +2160,7 @@ export default function EmberApp() {
 
   const startEditingResource = (resource: Resource) => {
     setEditingResourceId(resource.id);
+    setExpandedResourceId(resource.id);
     setResourceDraft({
       title: resource.title,
       url: resource.url,
@@ -2011,6 +2175,10 @@ export default function EmberApp() {
     if (editingResourceId === id) {
       setEditingResourceId(null);
       setResourceDraft({ title: "", url: "", note: "", tags: "" });
+    }
+
+    if (expandedResourceId === id) {
+      setExpandedResourceId(null);
     }
   };
 
@@ -2212,6 +2380,7 @@ export default function EmberApp() {
 
   const startEditingPlanItem = (item: PlanItem) => {
     setEditingPlanItemId(item.id);
+    setExpandedPlanItemId(item.id);
     setSelectedPlanDateKey(item.dateKey);
     setCalendarMonthKey(getMonthKey(item.dateKey));
     setPlanDraft({
@@ -2231,6 +2400,10 @@ export default function EmberApp() {
     if (editingPlanItemId === id) {
       setEditingPlanItemId(null);
       setPlanDraft(createPlanDraft(selectedPlanDateKey));
+    }
+
+    if (expandedPlanItemId === id) {
+      setExpandedPlanItemId(null);
     }
   };
 
@@ -2398,20 +2571,6 @@ export default function EmberApp() {
             </section>
           ) : null}
 
-          <header
-            className="rounded-[1.75rem] border border-[rgba(116,201,255,0.26)] bg-[linear-gradient(160deg,rgba(28,70,123,0.96),rgba(38,52,102,0.96))] px-5 py-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
-            id="home"
-          >
-            <p className="font-serif text-[1.75rem] leading-tight text-white">
-              Progress, not pressure
-            </p>
-            <p className="mt-1.5 text-sm text-muted">
-              {visibleProfile.name
-                ? `Welcome, ${visibleProfile.name}. Keep going. Gently.`
-                : "Keep going. Gently."}
-            </p>
-          </header>
-
           <section
             className="rounded-[1.6rem] border border-[rgba(183,181,255,0.28)] bg-[linear-gradient(145deg,rgba(58,83,148,0.92),rgba(72,64,130,0.92))] px-4 py-3.5"
             id="inspire"
@@ -2436,27 +2595,34 @@ export default function EmberApp() {
             </div>
           </section>
 
-          <section className="grid grid-cols-3 gap-2.5">
+          <section className="grid grid-cols-4 gap-2">
             <StatCard
-              className="min-h-[5.75rem] px-2.5 py-2.5"
+              className="min-h-[5rem] px-2 py-2"
               icon="🔥"
               label="Streak"
               tone="rose"
               value={`${streak} days`}
             />
             <StatCard
-              className="min-h-[5.75rem] px-2.5 py-2.5"
+              className="min-h-[5rem] px-2 py-2"
               icon="⏱"
               label="Today"
               tone="violet"
               value={`${minutesToday} min`}
             />
             <StatCard
-              className="min-h-[5.75rem] px-2.5 py-2.5"
+              className="min-h-[5rem] px-2 py-2"
               icon="📊"
               label="Weekly"
               tone="indigo"
               value={`${weeklyProgress}%`}
+            />
+            <StatCard
+              className="min-h-[5rem] px-2 py-2"
+              icon="🗓"
+              label="Calendar"
+              onClick={() => scrollToElement("plan")}
+              value={`${selectedPlanItems.length} item${selectedPlanItems.length === 1 ? "" : "s"}`}
             />
           </section>
 
@@ -2468,33 +2634,22 @@ export default function EmberApp() {
               <div>
                 <h2 className="text-lg font-semibold text-white">Today</h2>
                 <p className="mt-1 text-sm text-[#eef8ff]">
-                  {energyLevel === "Low"
-                    ? "A lighter plan is here today."
-                    : "What matters today."}
+                  {visibleProfile.name
+                    ? `${visibleProfile.name}, set today’s focus and save your check-in here.`
+                    : "Set today’s focus and save your check-in here."}
                 </p>
               </div>
               <button
                 className="rounded-full border border-white/15 px-3 py-1 text-xs font-semibold text-[#eef8ff] hover:text-white"
-                onClick={() => scrollToElement("check-in")}
+                onClick={() => scrollToSection("journey")}
                 type="button"
               >
-                Check in
+                Open Reflect
               </button>
             </div>
-            <div className="mb-3 grid grid-cols-2 gap-2">
-              <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-3 py-3">
-                <p className="text-[11px] uppercase tracking-[0.14em] text-muted">For today</p>
-                <p className="mt-1 text-sm font-semibold text-white">
-                  {todaysActivities.length} {todaysActivities.length === 1 ? "step" : "steps"}
-                </p>
-              </div>
-              <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-3 py-3">
-                <p className="text-[11px] uppercase tracking-[0.14em] text-muted">At your pace</p>
-                <p className="mt-1 text-sm font-semibold text-white">
-                  {todaysPlannedMinutes} min planned
-                </p>
-              </div>
-            </div>
+            <p className="mb-4 text-sm text-[#dff6ff]">
+              Visit Reflect to look back on your progress.
+            </p>
             <div className="mb-4 rounded-2xl border border-white/8 bg-white/[0.03] px-3 py-3">
               <div className="flex items-center justify-between gap-3">
                 <div>
@@ -2600,66 +2755,17 @@ export default function EmberApp() {
                 ) : null}
               </div>
             </div>
-            {trackedActivities.length > 0 ? (
-              <div className="mb-4 rounded-2xl border border-white/8 bg-white/[0.03] px-3 py-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold text-white">Activity timer</p>
-                    <p className="mt-1 text-xs text-muted">Time you have tracked today.</p>
-                  </div>
-                  {runningActivities.length > 0 ? (
-                    <span className="rounded-full border border-accent/25 bg-accent-soft px-2.5 py-1 text-[11px] text-accent">
-                      {runningActivities.length} live
-                    </span>
-                  ) : null}
-                </div>
-                <div className="mt-3 space-y-2">
-                  {trackedActivities.map((activity) => {
-                    const trackedSeconds = getActivityTrackedSeconds(activity, currentTimerMs);
-
-                    return (
-                      <div
-                        key={`tracked-${activity.id}`}
-                        className="rounded-2xl border border-border bg-card-strong px-3 py-3"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm font-semibold text-white">{activity.name}</p>
-                            <p className="mt-1 text-xs text-muted">
-                              {activity.timerStartedAt ? "Running now" : "Clocked today"}
-                            </p>
-                          </div>
-                          <div className="text-right">
-                            <p className="font-mono text-base font-semibold text-white">
-                              {formatTimerDuration(trackedSeconds)}
-                            </p>
-                            <p className="mt-1 text-[11px] text-muted">
-                              {activity.timerStartedAt ? "Live timer" : "Recorded"}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : null}
             {energyLevel === "Low" ? (
               <div className="rounded-2xl border border-accent/20 bg-accent-soft px-4 py-3 text-sm text-[#f8d8b5]">
                 Take it easy today. Small steps are enough.
               </div>
             ) : null}
-          </section>
-
-          <section
-            className="rounded-[1.75rem] border border-[rgba(255,138,176,0.28)] bg-[linear-gradient(155deg,rgba(126,52,95,0.92),rgba(74,54,112,0.94))] px-4 py-4 scroll-mt-6"
-            id="check-in"
-          >
-            <h2 className="text-lg font-semibold text-white">Today&apos;s Check-in</h2>
-            <p className="mt-1 text-sm text-[#f6efff]">
-              Save how today felt, then revisit it in Reflect.
-            </p>
-            <div className="mt-3 space-y-3">
+            <div className="mt-4 rounded-[1.6rem] border border-[rgba(255,138,176,0.22)] bg-[linear-gradient(155deg,rgba(126,52,95,0.35),rgba(74,54,112,0.45))] px-4 py-4">
+              <h3 className="text-base font-semibold text-white">Daily check-in</h3>
+              <p className="mt-1 text-sm text-[#f6efff]">
+                Save how today feels, then revisit it in Reflect when you want the bigger picture.
+              </p>
+              <div className="mt-3 space-y-3">
               <label className="block">
                 <span className="mb-2 block text-sm text-muted">Energy today</span>
                 <div className="grid grid-cols-3 gap-2">
@@ -2735,6 +2841,7 @@ export default function EmberApp() {
                 Save
               </button>
             </div>
+            </div>
           </section>
 
           <section
@@ -2743,119 +2850,203 @@ export default function EmberApp() {
           >
             <h2 className="text-lg font-semibold text-white">Routine</h2>
             <p className="mt-1 text-sm text-[#effff6]">
-              Add your activities here, then come back to them each day.
+              Keep your repeating activities, reminders, and tracked time here.
             </p>
             <div className="mt-4 space-y-3">
-                {todaysActivities.map((activity) => (
-                  <div
-                    key={`coach-${activity.id}`}
-                    className="rounded-2xl border border-border bg-card-strong px-3 py-3"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-semibold text-white">{activity.name}</p>
-                        <p className="text-xs text-muted">
-                          {activity.duration} minutes planned
-                          {activity.loggedSeconds > 0 || activity.timerStartedAt ? (
-                            <> • {formatTimerDuration(getActivityTrackedSeconds(activity, currentTimerMs))} tracked</>
+                {todaysActivities.map((activity) => {
+                  const todayEntry = getActivityHistoryEntry(activity, activeDateKey);
+                  const isExpanded = expandedRoutineId === activity.id;
+                  const trackedSeconds = getActivityTrackedSeconds(
+                    activity,
+                    currentTimerMs,
+                    activeDateKey,
+                  );
+                  const isCompletedToday = todayEntry?.completed ?? false;
+                  const hasTrackedToday = trackedSeconds > 0;
+
+                  return (
+                    <div
+                      key={`coach-${activity.id}`}
+                      className="rounded-2xl border border-border bg-card-strong px-3 py-3"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-semibold text-white">{activity.name}</p>
+                            <span
+                              aria-hidden="true"
+                              className={`text-sm text-accent ${
+                                checkedActivityId === activity.id
+                                  ? "animate-[softCheck_700ms_ease-out]"
+                                  : isCompletedToday
+                                    ? "opacity-100"
+                                    : "opacity-0"
+                              }`}
+                            >
+                              ✓
+                            </span>
+                          </div>
+                          <p className="mt-1 text-xs text-muted">
+                            {activity.duration} min planned
+                            {hasTrackedToday
+                              ? ` • ${formatTimerDuration(trackedSeconds)} tracked today`
+                              : ""}
+                          </p>
+                          {activity.reminder ? (
+                            <p className="mt-1 text-xs text-[#dff6ff]">
+                              Reminder {formatReminderTime(activity.reminderTime)} •{" "}
+                              {formatReminderSummary(activity)}
+                            </p>
                           ) : null}
-                        </p>
+                        </div>
+                        <div className="flex flex-col items-end gap-2">
+                          <button
+                            className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+                              todayEntry?.timerStartedAt
+                                ? "border-accent/50 bg-accent-soft text-accent"
+                                : "border-border text-muted hover:text-white"
+                            }`}
+                            onClick={() => toggleActivityTimer(activity.id)}
+                            type="button"
+                          >
+                            {todayEntry?.timerStartedAt ? "Stop" : "Start"}
+                          </button>
+                          <button
+                            className="rounded-full border border-border px-3 py-1 text-xs text-muted hover:text-white"
+                            onClick={() =>
+                              setExpandedRoutineId((current) =>
+                                current === activity.id ? null : activity.id,
+                              )
+                            }
+                            type="button"
+                          >
+                            {isExpanded ? "Hide" : "Open"}
+                          </button>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          className={`rounded-full border px-3 py-1 text-xs font-semibold ${
-                            activity.timerStartedAt
-                              ? "border-accent/50 bg-accent-soft text-accent"
-                              : "border-border text-muted hover:text-white"
-                          }`}
-                          onClick={() => toggleActivityTimer(activity.id)}
-                          type="button"
-                        >
-                          {activity.timerStartedAt ? "Stop" : "Start"}
-                        </button>
-                        <button
-                          className="rounded-full border border-border px-3 py-1 text-xs font-semibold text-accent hover:border-accent"
-                          onClick={() => startEditActivity(activity)}
-                          type="button"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          className="rounded-full border border-border px-3 py-1 text-xs font-semibold text-muted hover:text-white"
-                          onClick={() => deleteActivity(activity.id)}
-                          type="button"
-                        >
-                          Delete
-                        </button>
-                      </div>
+
+                      {isExpanded ? (
+                        <>
+                          <div className="mt-3 flex items-center justify-between gap-3">
+                            <label className="flex items-center gap-2 text-sm text-muted">
+                              <input
+                                checked={isCompletedToday}
+                                className="h-5 w-5 accent-[#f2a65a]"
+                                onChange={() => toggleActivity(activity.id)}
+                                type="checkbox"
+                              />
+                              Done today
+                            </label>
+                            <div className="text-right">
+                              <p className="font-mono text-base font-semibold text-white">
+                                {formatTimerDuration(trackedSeconds)}
+                              </p>
+                              <p className="text-[11px] text-muted">
+                                {todayEntry?.timerStartedAt ? "Live timer" : "Tracked today"}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            <button
+                              className="rounded-full border border-border px-3 py-1 text-xs font-semibold text-accent hover:border-accent"
+                              onClick={() => startEditActivity(activity)}
+                              type="button"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              className="rounded-full border border-border px-3 py-1 text-xs font-semibold text-muted hover:text-white"
+                              onClick={() => deleteActivity(activity.id)}
+                              type="button"
+                            >
+                              Delete
+                            </button>
+                            <button
+                              className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                                activity.reminder
+                                  ? "bg-accent-soft text-accent"
+                                  : "border border-border text-muted"
+                              }`}
+                              onClick={() =>
+                                updateActivityReminder(activity.id, {
+                                  reminder: !activity.reminder,
+                                  reminderStartDateKey:
+                                    activity.reminderStartDateKey || getTodayKey(),
+                                  lastReminderKey: null,
+                                })
+                              }
+                              type="button"
+                            >
+                              {activity.reminder ? "Reminder on" : "Reminder off"}
+                            </button>
+                          </div>
+                          {activity.reminder ? (
+                            <div className="mt-3 rounded-2xl border border-white/8 bg-white/[0.03] p-2.5">
+                              <div className="grid grid-cols-2 gap-2">
+                                <input
+                                  className="min-w-0 rounded-xl border border-border bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-accent"
+                                  onChange={(event) =>
+                                    updateActivityReminder(activity.id, {
+                                      reminderTime: event.target.value,
+                                      lastReminderKey: null,
+                                    })
+                                  }
+                                  type="time"
+                                  value={activity.reminderTime}
+                                />
+                                <select
+                                  className="w-full rounded-xl border border-border bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-accent"
+                                  onChange={(event) =>
+                                    updateActivityReminder(activity.id, {
+                                      repeat: event.target.value as PlanReminderRepeat,
+                                      lastReminderKey: null,
+                                    })
+                                  }
+                                  value={activity.repeat}
+                                >
+                                  {planReminderOptions
+                                    .filter((option) => option.value !== "none")
+                                    .map((option) => (
+                                      <option
+                                        key={`${activity.id}-${option.value}`}
+                                        className="bg-[#11192a] text-white"
+                                        value={option.value}
+                                      >
+                                        {option.label}
+                                      </option>
+                                    ))}
+                                </select>
+                              </div>
+                              {activity.repeat === "custom-hours" ? (
+                                <input
+                                  className="mt-2 w-full rounded-xl border border-border bg-transparent px-3 py-2 text-sm text-white outline-none focus:border-accent"
+                                  max="24"
+                                  min="1"
+                                  onChange={(event) =>
+                                    updateActivityReminder(activity.id, {
+                                      customRepeatHours: Number(event.target.value) || 1,
+                                      lastReminderKey: null,
+                                    })
+                                  }
+                                  placeholder="Hours between reminders"
+                                  type="number"
+                                  value={activity.customRepeatHours ?? 8}
+                                />
+                              ) : null}
+                              {(activity.repeat === "weekly" ||
+                                activity.repeat === "monthly" ||
+                                activity.repeat === "yearly") ? (
+                                <p className="mt-2 text-[11px] text-muted">
+                                  Repeats from {activity.reminderStartDateKey}.
+                                </p>
+                              ) : null}
+                            </div>
+                          ) : null}
+                        </>
+                      ) : null}
                     </div>
-                    <div className="mt-3 flex items-center justify-between gap-3">
-                      <label className="flex items-center gap-2 text-sm text-muted">
-                        <input
-                          checked={activity.completed}
-                          className="h-5 w-5 accent-[#f2a65a]"
-                          onChange={() => toggleActivity(activity.id)}
-                          type="checkbox"
-                        />
-                        Done
-                      </label>
-                      <div className="text-right">
-                        <p className="font-mono text-base font-semibold text-white">
-                          {activity.timerStartedAt
-                            ? formatTimerDuration(getActivityTrackedSeconds(activity, currentTimerMs))
-                            : activity.loggedSeconds > 0
-                              ? formatTimerDuration(activity.loggedSeconds)
-                              : "00:00"}
-                        </p>
-                        <p className="text-[11px] text-muted">
-                          {activity.timerStartedAt ? "Live timer" : "Elapsed"}
-                        </p>
-                      </div>
-                      <span
-                        aria-hidden="true"
-                        className={`text-sm text-accent ${
-                          checkedActivityId === activity.id
-                            ? "animate-[softCheck_700ms_ease-out]"
-                            : activity.completed
-                              ? "opacity-100"
-                              : "opacity-0"
-                        }`}
-                      >
-                        ✓
-                      </span>
-                    </div>
-                    <div className="mt-3 flex items-center gap-2">
-                      <button
-                        className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                          activity.reminder
-                            ? "bg-accent-soft text-accent"
-                            : "border border-border text-muted"
-                        }`}
-                        onClick={() =>
-                          updateActivityReminder(activity.id, {
-                            reminder: !activity.reminder,
-                            lastReminderDate: null,
-                          })
-                        }
-                        type="button"
-                      >
-                        {activity.reminder ? "Reminder on" : "Reminder off"}
-                      </button>
-                      <input
-                        className="min-w-0 flex-1 rounded-2xl border border-border bg-transparent px-4 py-2.5 text-sm text-white outline-none focus:border-accent"
-                        disabled={!activity.reminder}
-                        onChange={(event) =>
-                          updateActivityReminder(activity.id, {
-                            reminderTime: event.target.value,
-                            lastReminderDate: null,
-                          })
-                        }
-                        type="time"
-                        value={activity.reminderTime}
-                      />
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
             </div>
             <div className="mt-4 space-y-3 rounded-2xl border border-border bg-card-strong p-3">
                 <input
@@ -2923,19 +3114,23 @@ export default function EmberApp() {
               <div className="rounded-2xl border border-white/10 bg-white/[0.05] px-3 py-3">
                 <p className="text-[11px] uppercase tracking-[0.14em] text-[#e6f7ff]">On this day</p>
                 <p className="mt-1 text-sm font-semibold text-white">
-                  {selectedPlanItems.length} {selectedPlanItems.length === 1 ? "item" : "items"}
+                  {selectedPlanItems.length}
                 </p>
               </div>
               <div className="rounded-2xl border border-white/10 bg-white/[0.05] px-3 py-3">
-                <p className="text-[11px] uppercase tracking-[0.14em] text-[#e6f7ff]">Completed</p>
+                <p className="text-[10px] leading-tight uppercase tracking-[0.12em] text-[#e6f7ff]">
+                  Completed
+                </p>
                 <p className="mt-1 text-sm font-semibold text-white">
-                  {selectedPlanCompletedCount}/{selectedPlanItems.length || 0}
+                  {selectedPlanCompletedCount}
                 </p>
               </div>
               <div className="rounded-2xl border border-white/10 bg-white/[0.05] px-3 py-3">
-                <p className="text-[11px] uppercase tracking-[0.14em] text-[#e6f7ff]">Next up</p>
-                <p className="mt-1 truncate text-sm font-semibold text-white">
-                  {nextPlannedItem ? formatReminderTime(nextPlannedItem.time) : "Nothing waiting"}
+                <p className="text-[10px] leading-tight uppercase tracking-[0.12em] text-[#e6f7ff]">
+                  Reminders
+                </p>
+                <p className="mt-1 text-sm font-semibold text-white">
+                  {selectedPlanReminderCount}
                 </p>
               </div>
             </div>
@@ -3012,21 +3207,23 @@ export default function EmberApp() {
                 <p className="text-sm font-semibold text-white">What is on this day</p>
                 <p className="mt-1 text-sm text-[#eef7ff]">Everything you have saved for this date.</p>
               </div>
-              {selectedPlanItems.map((item) => (
-                <div
-                  key={item.id}
-                  className="rounded-2xl border border-border bg-card-strong px-3 py-3"
-                >
-                  <div className="flex items-start gap-3">
-                    <input
-                      checked={item.completed}
-                      className="mt-1 h-5 w-5 accent-[#f2a65a]"
-                      onChange={() => togglePlanItem(item.id)}
-                      type="checkbox"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
+              {selectedPlanItems.map((item) => {
+                const isExpanded = expandedPlanItemId === item.id;
+
+                return (
+                  <div
+                    key={item.id}
+                    className="rounded-2xl border border-border bg-card-strong px-3 py-3"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <input
+                            checked={item.completed}
+                            className="h-5 w-5 accent-[#f2a65a]"
+                            onChange={() => togglePlanItem(item.id)}
+                            type="checkbox"
+                          />
                           <p
                             className={`text-sm font-semibold ${
                               item.completed ? "text-muted line-through" : "text-white"
@@ -3034,14 +3231,30 @@ export default function EmberApp() {
                           >
                             {item.title}
                           </p>
-                          <p className="mt-1 text-xs text-[#f8d8b5]">
-                            {formatReminderTime(item.time)}
-                            {item.reminder
-                              ? ` • ${formatPlanReminderSummary(item)}`
-                              : ""}
-                          </p>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <p className="mt-1 text-xs text-[#f8d8b5]">
+                          {formatReminderTime(item.time)}
+                          {item.reminder ? ` • ${formatReminderSummary(item)}` : ""}
+                        </p>
+                      </div>
+                      <button
+                        className="rounded-full border border-border px-3 py-1 text-xs text-muted hover:text-white"
+                        onClick={() =>
+                          setExpandedPlanItemId((current) => (current === item.id ? null : item.id))
+                        }
+                        type="button"
+                      >
+                        {isExpanded ? "Hide" : "Open"}
+                      </button>
+                    </div>
+                    {isExpanded ? (
+                      <div className="mt-3 border-t border-border pt-3">
+                        {item.note ? (
+                          <p className="text-sm leading-6 text-[#dbe0e8]">{item.note}</p>
+                        ) : (
+                          <p className="text-sm text-muted">No note saved for this item.</p>
+                        )}
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
                           <button
                             className="rounded-full border border-border px-3 py-1 text-xs text-muted hover:text-white"
                             onClick={() => startEditingPlanItem(item)}
@@ -3058,13 +3271,10 @@ export default function EmberApp() {
                           </button>
                         </div>
                       </div>
-                      {item.note ? (
-                        <p className="mt-2 text-sm leading-6 text-[#dbe0e8]">{item.note}</p>
-                      ) : null}
-                    </div>
+                    ) : null}
                   </div>
-                </div>
-              ))}
+                );
+              })}
               {selectedPlanItems.length === 0 ? (
                 <p className="rounded-2xl border border-border bg-card-strong px-4 py-4 text-sm text-muted">
                   Nothing here yet. Add an event, appointment, or task.
@@ -3255,23 +3465,17 @@ export default function EmberApp() {
                                 type="button"
                               >
                                 <div className="flex items-center justify-between gap-3">
-                                  <div>
+                                  <div className="min-w-0">
                                     <p className="text-sm font-semibold text-white">
                                       {entry.date}
                                     </p>
-                                    <p className="mt-1 text-sm text-[#dbe0e8]">
-                                      {entry.feeling}
+                                    <p className="mt-1 truncate text-sm text-[#dbe0e8]">
+                                      {entry.feeling || "Check-in saved"}
                                     </p>
                                   </div>
-                                  <span className="text-xs text-accent">
+                                  <span className="shrink-0 text-xs text-accent">
                                     {expandedEntryId === entry.id ? "Hide" : "Open"}
                                   </span>
-                                </div>
-                                <div className="mt-3 flex items-center justify-between gap-3 text-sm">
-                                  <p className="text-muted">{buildPreview(entry.note)}</p>
-                                  <p className="shrink-0 text-[#f8d8b5]">
-                                    Saved
-                                  </p>
                                 </div>
                               </button>
                               {expandedEntryId === entry.id ? (
@@ -3384,140 +3588,173 @@ export default function EmberApp() {
                   </div>
                 )}
               </div>
+          </section>
 
-              <div className="rounded-2xl border border-border bg-card-strong px-4 py-4">
-                <p className="text-sm font-semibold text-white">Researches and Links</p>
-                <p className="mt-1 text-sm text-muted">
-                  Save articles, links, and notes here.
+          <section
+            className="space-y-4 rounded-[1.75rem] border border-[rgba(121,207,255,0.28)] bg-[linear-gradient(150deg,rgba(39,78,122,0.92),rgba(35,61,104,0.94))] px-4 py-4"
+            id="resource"
+          >
+            <div>
+              <h2 className="text-lg font-semibold text-white">Resource</h2>
+              <p className="mt-1 text-sm text-[#eef6ff]">
+                Save articles, links, and notes here.
+              </p>
+            </div>
+            <div className="rounded-2xl border border-border bg-card-strong px-4 py-4">
+              {resourceMessage ? (
+                <p className="rounded-2xl border border-accent/25 bg-accent-soft px-4 py-3 text-sm text-[#f8d8b5]">
+                  {resourceMessage}
                 </p>
-                {resourceMessage ? (
-                  <p className="mt-3 rounded-2xl border border-accent/25 bg-accent-soft px-4 py-3 text-sm text-[#f8d8b5]">
-                    {resourceMessage}
-                  </p>
-                ) : null}
-                <input
-                  className="mt-3 w-full rounded-2xl border border-border bg-transparent px-4 py-3 text-sm text-white outline-none placeholder:text-muted focus:border-accent"
-                  onChange={(event) => setResourceSearch(event.target.value)}
-                  placeholder="Search by title, note, or tag"
-                  value={resourceSearch}
-                />
-                <div className="mt-3 space-y-3">
-                  {filteredResources.map((resource) => (
+              ) : null}
+              <input
+                className="mt-3 w-full rounded-2xl border border-border bg-transparent px-4 py-3 text-sm text-white outline-none placeholder:text-muted focus:border-accent"
+                onChange={(event) => setResourceSearch(event.target.value)}
+                placeholder="Search by title, note, or tag"
+                value={resourceSearch}
+              />
+              <div className="mt-3 space-y-3">
+                {filteredResources.map((resource) => {
+                  const isExpanded = expandedResourceId === resource.id;
+
+                  return (
                     <div
                       key={resource.id}
                       className="rounded-2xl border border-border bg-[#101b2e] px-3 py-3"
                     >
-                      <div className="space-y-3">
-                        <a
-                          className="block min-w-0 hover:text-white"
-                          href={resource.url}
-                          rel="noreferrer"
-                          target="_blank"
-                        >
-                          <p className="text-sm font-semibold text-white">{resource.title}</p>
-                          <p className="mt-1 truncate text-xs text-muted">{resource.url}</p>
-                        </a>
-                        {resource.note ? (
-                          <p className="whitespace-normal break-words text-sm leading-6 text-[#eef6ff]">
-                            {resource.note}
-                          </p>
-                        ) : null}
-                        {resource.tags.length > 0 ? (
-                          <div className="flex flex-wrap gap-2">
-                            {resource.tags.map((tag) => (
-                              <span
-                                key={`${resource.id}-${tag}`}
-                                className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11px] text-[#d9e8ff]"
-                              >
-                                #{tag}
-                              </span>
-                            ))}
+                      <button
+                        className="w-full text-left"
+                        onClick={() =>
+                          setExpandedResourceId((current) =>
+                            current === resource.id ? null : resource.id,
+                          )
+                        }
+                        type="button"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-white">{resource.title}</p>
+                            <p className="mt-1 truncate text-xs text-muted">{resource.url}</p>
                           </div>
-                        ) : null}
-                        <div className="flex flex-wrap items-center gap-2">
-                          <button
-                            className="rounded-full border border-border px-3 py-1 text-xs text-muted hover:text-white"
-                            onClick={() => {
-                              void shareResource(resource);
-                            }}
-                            type="button"
-                          >
-                            Share
-                          </button>
-                          <button
-                            className="rounded-full border border-border px-3 py-1 text-xs text-muted hover:text-white"
-                            onClick={() => startEditingResource(resource)}
-                            type="button"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            className="rounded-full border border-border px-3 py-1 text-xs text-muted hover:text-white"
-                            onClick={() => deleteResource(resource.id)}
-                            type="button"
-                          >
-                            Delete
-                          </button>
+                          <span className="shrink-0 text-xs text-accent">
+                            {isExpanded ? "Hide" : "Open"}
+                          </span>
                         </div>
-                      </div>
+                      </button>
+                      {isExpanded ? (
+                        <div className="mt-3 border-t border-border pt-3">
+                          {resource.note ? (
+                            <p className="whitespace-normal break-words text-sm leading-6 text-[#eef6ff]">
+                              {resource.note}
+                            </p>
+                          ) : (
+                            <p className="text-sm text-muted">No note saved for this resource.</p>
+                          )}
+                          {resource.tags.length > 0 ? (
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              {resource.tags.map((tag) => (
+                                <span
+                                  key={`${resource.id}-${tag}`}
+                                  className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11px] text-[#d9e8ff]"
+                                >
+                                  #{tag}
+                                </span>
+                              ))}
+                            </div>
+                          ) : null}
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            <a
+                              className="rounded-full border border-border px-3 py-1 text-xs text-muted hover:text-white"
+                              href={resource.url}
+                              rel="noreferrer"
+                              target="_blank"
+                            >
+                              Open link
+                            </a>
+                            <button
+                              className="rounded-full border border-border px-3 py-1 text-xs text-muted hover:text-white"
+                              onClick={() => {
+                                void shareResource(resource);
+                              }}
+                              type="button"
+                            >
+                              Share
+                            </button>
+                            <button
+                              className="rounded-full border border-border px-3 py-1 text-xs text-muted hover:text-white"
+                              onClick={() => startEditingResource(resource)}
+                              type="button"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              className="rounded-full border border-border px-3 py-1 text-xs text-muted hover:text-white"
+                              onClick={() => deleteResource(resource.id)}
+                              type="button"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
-                  ))}
-                </div>
-                <div className="mt-4 space-y-3">
-                  <input
-                    className="w-full rounded-2xl border border-border bg-transparent px-4 py-3 text-sm text-white outline-none placeholder:text-muted focus:border-accent"
-                    onChange={(event) =>
-                      setResourceDraft((current) => ({
-                        ...current,
-                        title: event.target.value,
-                      }))
-                    }
-                    placeholder="Resource title"
-                    value={resourceDraft.title}
-                  />
-                  <input
-                    className="w-full rounded-2xl border border-border bg-transparent px-4 py-3 text-sm text-white outline-none placeholder:text-muted focus:border-accent"
-                    onChange={(event) =>
-                      setResourceDraft((current) => ({
-                        ...current,
-                        url: event.target.value,
-                      }))
-                    }
-                    placeholder="https://"
-                    type="url"
-                    value={resourceDraft.url}
-                  />
-                  <input
-                    className="w-full rounded-2xl border border-border bg-transparent px-4 py-3 text-sm text-white outline-none placeholder:text-muted focus:border-accent"
-                    onChange={(event) =>
-                      setResourceDraft((current) => ({
-                        ...current,
-                        tags: event.target.value,
-                      }))
-                    }
-                    placeholder="Tags, separated by commas"
-                    value={resourceDraft.tags}
-                  />
-                  <textarea
-                    className="min-h-24 w-full rounded-2xl border border-border bg-transparent px-4 py-3 text-sm text-white outline-none placeholder:text-muted focus:border-accent"
-                    onChange={(event) =>
-                      setResourceDraft((current) => ({
-                        ...current,
-                        note: event.target.value,
-                      }))
-                    }
-                    placeholder="Add a note"
-                    value={resourceDraft.note}
-                  />
-                  <button
-                    className="w-full rounded-2xl border border-accent/50 bg-accent-soft px-4 py-3 text-sm font-semibold text-accent hover:border-accent"
-                    onClick={addResource}
-                    type="button"
-                  >
-                    {editingResourceId !== null ? "Save resource" : "Add resource"}
-                  </button>
-                </div>
+                  );
+                })}
               </div>
+              <div className="mt-4 space-y-3">
+                <input
+                  className="w-full rounded-2xl border border-border bg-transparent px-4 py-3 text-sm text-white outline-none placeholder:text-muted focus:border-accent"
+                  onChange={(event) =>
+                    setResourceDraft((current) => ({
+                      ...current,
+                      title: event.target.value,
+                    }))
+                  }
+                  placeholder="Resource title"
+                  value={resourceDraft.title}
+                />
+                <input
+                  className="w-full rounded-2xl border border-border bg-transparent px-4 py-3 text-sm text-white outline-none placeholder:text-muted focus:border-accent"
+                  onChange={(event) =>
+                    setResourceDraft((current) => ({
+                      ...current,
+                      url: event.target.value,
+                    }))
+                  }
+                  placeholder="https://"
+                  type="url"
+                  value={resourceDraft.url}
+                />
+                <input
+                  className="w-full rounded-2xl border border-border bg-transparent px-4 py-3 text-sm text-white outline-none placeholder:text-muted focus:border-accent"
+                  onChange={(event) =>
+                    setResourceDraft((current) => ({
+                      ...current,
+                      tags: event.target.value,
+                    }))
+                  }
+                  placeholder="Tags, separated by commas"
+                  value={resourceDraft.tags}
+                />
+                <textarea
+                  className="min-h-24 w-full rounded-2xl border border-border bg-transparent px-4 py-3 text-sm text-white outline-none placeholder:text-muted focus:border-accent"
+                  onChange={(event) =>
+                    setResourceDraft((current) => ({
+                      ...current,
+                      note: event.target.value,
+                    }))
+                  }
+                  placeholder="Add a note"
+                  value={resourceDraft.note}
+                />
+                <button
+                  className="w-full rounded-2xl border border-accent/50 bg-accent-soft px-4 py-3 text-sm font-semibold text-accent hover:border-accent"
+                  onClick={addResource}
+                  type="button"
+                >
+                  {editingResourceId !== null ? "Save resource" : "Add resource"}
+                </button>
+              </div>
+            </div>
           </section>
 
           <section
@@ -3813,10 +4050,7 @@ function StatCard({
         onClick={onClick}
         type="button"
       >
-        <div className="flex items-start justify-between gap-2">
-          <p className={`text-lg ${accentClass}`}>{icon}</p>
-          <span className="text-xs text-muted">Open</span>
-        </div>
+        <p className={`text-lg ${accentClass}`}>{icon}</p>
         <p className={`mt-3 text-xs tracking-[0.08em] ${accentClass}`}>{label}</p>
         <p className="mt-1 text-sm font-semibold text-white">{value}</p>
       </button>
