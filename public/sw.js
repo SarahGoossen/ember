@@ -1,4 +1,4 @@
-const CACHE_NAME = "ember-shell-v1";
+const CACHE_NAME = "ember-shell-v2";
 const APP_SHELL = ["/", "/manifest.webmanifest", "/apple-icon", "/icon"];
 
 self.addEventListener("install", (event) => {

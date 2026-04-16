@@ -4013,9 +4013,9 @@ export default function EmberApp() {
                   </div>
                 </div>
               ) : (
-                <div className="mt-3 space-y-3">
+                <div className="mt-3 space-y-3 rounded-2xl border border-white/10 bg-white/[0.04] p-3">
                   <input
-                    className="w-full rounded-2xl border border-border bg-transparent px-4 py-3 text-sm text-white outline-none placeholder:text-muted focus:border-accent"
+                    className="w-full rounded-2xl border border-white/12 bg-[#0d1627] px-4 py-3 text-sm text-white outline-none placeholder:text-muted focus:border-accent"
                     onChange={(event) => setCloudEmail(event.target.value)}
                     placeholder="Email for private cloud save"
                     type="email"

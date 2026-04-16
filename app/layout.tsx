@@ -11,9 +11,9 @@ export const metadata: Metadata = {
     title: "Ember",
   },
   icons: {
-    icon: "/icons/icon-192.png",
+    icon: "/icons/ember-icon-square.png",
     shortcut: "/icons/favicon.png",
-    apple: "/icons/apple-touch-icon.png",
+    apple: "/icons/ember-icon-square.png",
   },
 };
 
