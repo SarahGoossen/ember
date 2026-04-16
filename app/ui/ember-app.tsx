@@ -109,6 +109,11 @@ type EmberCloudSnapshot = {
   onboardingDismissed: boolean;
 };
 
+type EmberCloudRow = {
+  data: Partial<EmberCloudSnapshot> | null;
+  updated_at: string | null;
+};
+
 const inspireMoments = [
   {
     quote: "A bright start can begin right here.",
@@ -1194,6 +1199,7 @@ function hasMeaningfulSnapshotData(snapshot: EmberCloudSnapshot) {
 export default function EmberApp() {
   const supabase = useMemo(() => getSupabaseBrowserClient(), []);
   const cloudSaveTimeoutRef = useRef<number | null>(null);
+  const cloudSyncIntervalRef = useRef<number | null>(null);
   const currentSnapshotRef = useRef<EmberCloudSnapshot>(
     buildSnapshot({
       activities: normalizeActivities(initialActivities),
@@ -1205,6 +1211,8 @@ export default function EmberApp() {
       onboardingDismissed: false,
     }),
   );
+  const lastCloudSnapshotRef = useRef<string>("");
+  const lastCloudUpdatedAtRef = useRef<string>("");
   const [activeTab, setActiveTab] = useState<TabId>("home");
   const [activities, setActivities] = useState<Activity[]>(normalizeActivities(initialActivities));
   const [checkIns, setCheckIns] = useState<CheckIn[]>(initialCheckIns);
@@ -1320,16 +1328,98 @@ export default function EmberApp() {
 
     let isActive = true;
 
+    const applyRemoteRow = (row: EmberCloudRow | null | undefined) => {
+      const remoteState = applySnapshot(row?.data ?? null);
+      const remoteSnapshot = buildSnapshot(remoteState);
+      const snapshotText = JSON.stringify(remoteSnapshot);
+      const updatedAt = row?.updated_at ?? "";
+
+      if (!hasMeaningfulSnapshotData(remoteSnapshot)) {
+        return false;
+      }
+
+      if (snapshotText === lastCloudSnapshotRef.current) {
+        if (updatedAt) {
+          lastCloudUpdatedAtRef.current = updatedAt;
+        }
+        return false;
+      }
+
+      setActivities(remoteState.activities);
+      setCheckIns(remoteState.checkIns);
+      setResources(remoteState.resources);
+      setPlanItems(remoteState.planItems);
+      setProfile(remoteState.profile);
+      setSmallGoals(remoteState.smallGoals);
+      setOnboardingDismissed(remoteState.onboardingDismissed);
+      lastCloudSnapshotRef.current = snapshotText;
+      lastCloudUpdatedAtRef.current = updatedAt;
+      return true;
+    };
+
+    const loadRemoteSnapshot = async (userId: string) => {
+      const { data, error } = await supabase
+        .from("ember_app_state")
+        .select("data, updated_at")
+        .eq("user_id", userId)
+        .maybeSingle<EmberCloudRow>();
+
+      if (!isActive) {
+        return { error: null, data: null, applied: false };
+      }
+
+      if (error) {
+        return { error, data: null, applied: false };
+      }
+
+      const applied = applyRemoteRow(data);
+      return { error: null, data, applied };
+    };
+
+    const startCloudPolling = (userId: string) => {
+      if (cloudSyncIntervalRef.current !== null) {
+        window.clearInterval(cloudSyncIntervalRef.current);
+      }
+
+      cloudSyncIntervalRef.current = window.setInterval(() => {
+        void (async () => {
+          const { data } = await loadRemoteSnapshot(userId);
+
+          if (!isActive || !data?.updated_at) {
+            return;
+          }
+
+          if (
+            lastCloudUpdatedAtRef.current &&
+            data.updated_at <= lastCloudUpdatedAtRef.current
+          ) {
+            return;
+          }
+
+          if (applyRemoteRow(data)) {
+            setCloudStatus("saved");
+            setCloudMessage("Cloud save is on and syncing.");
+          }
+        })();
+      }, 4000);
+    };
+
     const syncSession = async (session: Session | null) => {
       if (!isActive) {
         return;
       }
 
       if (!session?.user) {
+        if (cloudSyncIntervalRef.current !== null) {
+          window.clearInterval(cloudSyncIntervalRef.current);
+          cloudSyncIntervalRef.current = null;
+        }
         setCloudUserId(null);
         setCloudUserEmail("");
         setCloudStatus("idle");
         setIsCloudLoaded(true);
+        lastCloudSnapshotRef.current = "";
+        lastCloudUpdatedAtRef.current = "";
         return;
       }
 
@@ -1339,11 +1429,7 @@ export default function EmberApp() {
 
       const localSnapshot = currentSnapshotRef.current;
 
-      const { data, error } = await supabase
-        .from("ember_app_state")
-        .select("data")
-        .eq("user_id", session.user.id)
-        .maybeSingle();
+      const { error, applied } = await loadRemoteSnapshot(session.user.id);
 
       if (!isActive) {
         return;
@@ -1358,30 +1444,21 @@ export default function EmberApp() {
         return;
       }
 
-      const remoteState = applySnapshot(
-        (data?.data as Partial<EmberCloudSnapshot> | null | undefined) ?? null,
-      );
-      const remoteSnapshot = buildSnapshot(remoteState);
-
-      if (hasMeaningfulSnapshotData(remoteSnapshot)) {
-        setActivities(remoteState.activities);
-        setCheckIns(remoteState.checkIns);
-        setResources(remoteState.resources);
-        setPlanItems(remoteState.planItems);
-        setProfile(remoteState.profile);
-        setSmallGoals(remoteState.smallGoals);
-        setOnboardingDismissed(remoteState.onboardingDismissed);
+      if (applied) {
         setCloudStatus("saved");
-        setCloudMessage("Cloud save is on.");
+        setCloudMessage("Cloud save is on and syncing.");
         setIsCloudLoaded(true);
+        startCloudPolling(session.user.id);
         return;
       }
 
       if (hasMeaningfulSnapshotData(localSnapshot)) {
+        const updatedAt = new Date().toISOString();
         const { error: saveError } = await supabase.from("ember_app_state").upsert(
           {
             user_id: session.user.id,
             data: localSnapshot,
+            updated_at: updatedAt,
           },
           {
             onConflict: "user_id",
@@ -1400,11 +1477,15 @@ export default function EmberApp() {
           setIsCloudLoaded(true);
           return;
         }
+
+        lastCloudSnapshotRef.current = JSON.stringify(localSnapshot);
+        lastCloudUpdatedAtRef.current = updatedAt;
       }
 
       setCloudStatus("saved");
-      setCloudMessage("Cloud save is on.");
+      setCloudMessage("Cloud save is on and syncing.");
       setIsCloudLoaded(true);
+      startCloudPolling(session.user.id);
     };
 
     void supabase.auth.getSession().then(({ data, error }) => {
@@ -1432,6 +1513,10 @@ export default function EmberApp() {
 
     return () => {
       isActive = false;
+      if (cloudSyncIntervalRef.current !== null) {
+        window.clearInterval(cloudSyncIntervalRef.current);
+        cloudSyncIntervalRef.current = null;
+      }
       subscription.unsubscribe();
     };
   }, [isHydrated, supabase]);
@@ -1527,12 +1612,20 @@ export default function EmberApp() {
         smallGoals,
         onboardingDismissed,
       });
+      const snapshotText = JSON.stringify(snapshot);
+
+      if (snapshotText === lastCloudSnapshotRef.current) {
+        setCloudStatus("saved");
+        return;
+      }
 
       void (async () => {
+        const updatedAt = new Date().toISOString();
         const { error } = await supabase.from("ember_app_state").upsert(
           {
             user_id: cloudUserId,
             data: snapshot,
+            updated_at: updatedAt,
           },
           {
             onConflict: "user_id",
@@ -1547,6 +1640,8 @@ export default function EmberApp() {
           return;
         }
 
+        lastCloudSnapshotRef.current = snapshotText;
+        lastCloudUpdatedAtRef.current = updatedAt;
         setCloudStatus("saved");
       })();
     }, 900);
@@ -3815,7 +3910,7 @@ export default function EmberApp() {
                 <div>
                   <p className="text-base font-semibold text-white">Cloud save</p>
                   <p className="mt-1 text-sm text-[#eef6ff]">
-                    Keep your entries available across devices and app updates.
+                    Sign in once and keep the same data across your devices.
                   </p>
                 </div>
                 <span className="rounded-full border border-white/12 px-3 py-1 text-xs text-[#eef6ff]">
@@ -3859,7 +3954,7 @@ export default function EmberApp() {
                     }}
                     type="button"
                   >
-                    Set up cloud save
+                    Turn on sync
                   </button>
                 </div>
               )}
