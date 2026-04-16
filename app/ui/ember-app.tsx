@@ -400,6 +400,13 @@ function getTodayKey() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function getLocalDateKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function getDisplayDateTime(date = new Date()) {
   return `${date.toLocaleDateString(undefined, {
     month: "short",
@@ -533,7 +540,23 @@ function formatReminderSummary(
   return formatPlanRepeatLabel(item.repeat);
 }
 
-function getMinuteOfDay(time: string) {
+function buildLocalDateTime(dateKey: string, time: string) {
+  return new Date(`${dateKey}T${time}:00`);
+}
+
+type ReminderOccurrence = {
+  dueAt: number;
+  reminderKey: string;
+};
+
+function getWeekStartKey(date: Date) {
+  const weekStart = new Date(date);
+  weekStart.setHours(0, 0, 0, 0);
+  weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+  return getLocalDateKey(weekStart);
+}
+
+function createDateAtTime(date: Date, time: string) {
   const [hoursText, minutesText] = time.split(":");
   const hours = Number(hoursText);
   const minutes = Number(minutesText);
@@ -542,90 +565,184 @@ function getMinuteOfDay(time: string) {
     return null;
   }
 
-  return hours * 60 + minutes;
+  const result = new Date(date);
+  result.setHours(hours, minutes, 0, 0);
+  return result;
 }
 
-function buildLocalDateTime(dateKey: string, time: string) {
-  return new Date(`${dateKey}T${time}:00`);
+function createMonthOccurrence(
+  year: number,
+  monthIndex: number,
+  dayOfMonth: number,
+  time: string,
+) {
+  const candidate = new Date(year, monthIndex, dayOfMonth);
+
+  if (
+    candidate.getFullYear() !== year ||
+    candidate.getMonth() !== monthIndex ||
+    candidate.getDate() !== dayOfMonth
+  ) {
+    return null;
+  }
+
+  return createDateAtTime(candidate, time);
 }
 
-function getPlanReminderMatch(item: PlanItem, now: Date) {
-  const currentDateKey = getTodayKey();
-  const currentTimeKey = getCurrentTimeKey(now);
+function createYearOccurrence(
+  year: number,
+  monthIndex: number,
+  dayOfMonth: number,
+  time: string,
+) {
+  return createMonthOccurrence(year, monthIndex, dayOfMonth, time);
+}
 
+function getNextPlanReminderOccurrence(
+  item: Pick<PlanItem, "dateKey" | "time" | "reminder" | "repeat" | "customRepeatHours" | "lastReminderKey">,
+  now: Date,
+): ReminderOccurrence | null {
   if (!item.reminder) {
-    return null;
-  }
-
-  if (item.repeat === "none") {
-    if (item.dateKey === currentDateKey && item.time === currentTimeKey) {
-      return { reminderKey: currentDateKey };
-    }
-
-    return null;
-  }
-
-  if (item.repeat === "daily") {
-    if (item.time === currentTimeKey) {
-      return { reminderKey: currentDateKey };
-    }
-
-    return null;
-  }
-
-  if (item.repeat === "monthly") {
-    const startDate = buildLocalDateTime(item.dateKey, item.time);
-
-    if (now < startDate) {
-      return null;
-    }
-
-    if (now.getDate() === startDate.getDate() && item.time === currentTimeKey) {
-      return { reminderKey: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}` };
-    }
-
-    return null;
-  }
-
-  if (item.repeat === "weekly") {
-    const startDate = buildLocalDateTime(item.dateKey, item.time);
-
-    if (now < startDate) {
-      return null;
-    }
-
-    if (now.getDay() === startDate.getDay() && item.time === currentTimeKey) {
-      const weekStart = new Date(now);
-      weekStart.setHours(0, 0, 0, 0);
-      weekStart.setDate(now.getDate() - now.getDay());
-      return { reminderKey: weekStart.toISOString().slice(0, 10) };
-    }
-
-    return null;
-  }
-
-  if (item.repeat === "yearly") {
-    const startDate = buildLocalDateTime(item.dateKey, item.time);
-
-    if (now < startDate) {
-      return null;
-    }
-
-    if (
-      now.getMonth() === startDate.getMonth() &&
-      now.getDate() === startDate.getDate() &&
-      item.time === currentTimeKey
-    ) {
-      return { reminderKey: String(now.getFullYear()) };
-    }
-
     return null;
   }
 
   const startDate = buildLocalDateTime(item.dateKey, item.time);
   const startMs = startDate.getTime();
 
-  if (Number.isNaN(startMs) || now.getTime() < startMs) {
+  if (Number.isNaN(startMs)) {
+    return null;
+  }
+
+  if (item.repeat === "none") {
+    const reminderKey = item.dateKey;
+
+    if (now.getTime() < startMs) {
+      return { dueAt: startMs, reminderKey };
+    }
+
+    if (getLocalDateKey(now) === item.dateKey && item.lastReminderKey !== reminderKey) {
+      return { dueAt: now.getTime(), reminderKey };
+    }
+
+    return null;
+  }
+
+  if (item.repeat === "daily") {
+    const todayCandidate = createDateAtTime(now, item.time);
+
+    if (!todayCandidate) {
+      return null;
+    }
+
+    if (todayCandidate.getTime() < startMs) {
+      return { dueAt: startMs, reminderKey: item.dateKey };
+    }
+
+    const todayKey = getLocalDateKey(todayCandidate);
+
+    if (todayCandidate.getTime() <= now.getTime() && item.lastReminderKey !== todayKey) {
+      return { dueAt: now.getTime(), reminderKey: todayKey };
+    }
+
+    if (todayCandidate.getTime() > now.getTime()) {
+      return { dueAt: todayCandidate.getTime(), reminderKey: todayKey };
+    }
+
+    const tomorrowCandidate = new Date(todayCandidate);
+    tomorrowCandidate.setDate(tomorrowCandidate.getDate() + 1);
+    return {
+      dueAt: tomorrowCandidate.getTime(),
+      reminderKey: getLocalDateKey(tomorrowCandidate),
+    };
+  }
+
+  if (item.repeat === "weekly") {
+    const currentWeekCandidate = createDateAtTime(now, item.time);
+
+    if (!currentWeekCandidate) {
+      return null;
+    }
+
+    currentWeekCandidate.setDate(
+      currentWeekCandidate.getDate() - currentWeekCandidate.getDay() + startDate.getDay(),
+    );
+
+    if (currentWeekCandidate.getTime() < startMs) {
+      return { dueAt: startMs, reminderKey: getWeekStartKey(startDate) };
+    }
+
+    const currentWeekKey = getWeekStartKey(currentWeekCandidate);
+
+    if (
+      currentWeekCandidate.getTime() <= now.getTime() &&
+      item.lastReminderKey !== currentWeekKey
+    ) {
+      return { dueAt: now.getTime(), reminderKey: currentWeekKey };
+    }
+
+    if (currentWeekCandidate.getTime() > now.getTime()) {
+      return { dueAt: currentWeekCandidate.getTime(), reminderKey: currentWeekKey };
+    }
+
+    const nextWeekCandidate = new Date(currentWeekCandidate);
+    nextWeekCandidate.setDate(nextWeekCandidate.getDate() + 7);
+    return {
+      dueAt: nextWeekCandidate.getTime(),
+      reminderKey: getWeekStartKey(nextWeekCandidate),
+    };
+  }
+
+  if (item.repeat === "monthly") {
+    for (let offset = 0; offset < 24; offset += 1) {
+      const candidate = createMonthOccurrence(
+        now.getFullYear(),
+        now.getMonth() + offset,
+        startDate.getDate(),
+        item.time,
+      );
+
+      if (!candidate || candidate.getTime() < startMs) {
+        continue;
+      }
+
+      const reminderKey = `${candidate.getFullYear()}-${String(candidate.getMonth() + 1).padStart(2, "0")}`;
+
+      if (offset === 0 && candidate.getTime() <= now.getTime() && item.lastReminderKey !== reminderKey) {
+        return { dueAt: now.getTime(), reminderKey };
+      }
+
+      if (candidate.getTime() > now.getTime()) {
+        return { dueAt: candidate.getTime(), reminderKey };
+      }
+    }
+
+    return null;
+  }
+
+  if (item.repeat === "yearly") {
+    for (let offset = 0; offset < 5; offset += 1) {
+      const candidate = createYearOccurrence(
+        now.getFullYear() + offset,
+        startDate.getMonth(),
+        startDate.getDate(),
+        item.time,
+      );
+
+      if (!candidate || candidate.getTime() < startMs) {
+        continue;
+      }
+
+      const reminderKey = String(candidate.getFullYear());
+
+      if (offset === 0 && candidate.getTime() <= now.getTime() && item.lastReminderKey !== reminderKey) {
+        return { dueAt: now.getTime(), reminderKey };
+      }
+
+      if (candidate.getTime() > now.getTime()) {
+        return { dueAt: candidate.getTime(), reminderKey };
+      }
+    }
+
     return null;
   }
 
@@ -635,38 +752,34 @@ function getPlanReminderMatch(item: PlanItem, now: Date) {
       : item.repeat === "every-6-hours"
         ? 6
         : getCustomRepeatHours(item.customRepeatHours);
-  const intervalMinutes = intervalHours * 60;
-  const startMinuteOfDay = getMinuteOfDay(item.time);
-  const currentMinuteOfDay = getMinuteOfDay(currentTimeKey);
+  const intervalMs = intervalHours * 60 * 60 * 1000;
 
-  if (startMinuteOfDay === null || currentMinuteOfDay === null) {
-    return null;
-  }
-
-  if (currentMinuteOfDay % 60 !== startMinuteOfDay % 60) {
-    return null;
-  }
-
-  const elapsedMinutes = Math.floor((now.getTime() - startMs) / 60000);
-
-  if (elapsedMinutes >= 0 && elapsedMinutes % intervalMinutes === 0) {
+  if (now.getTime() < startMs) {
     return {
-      reminderKey: `${item.repeat}-${intervalHours}-${Math.floor(elapsedMinutes / intervalMinutes)}`,
+      dueAt: startMs,
+      reminderKey: `${item.repeat}-${intervalHours}-0`,
     };
   }
 
-  return null;
+  const elapsedIntervals = Math.floor((now.getTime() - startMs) / intervalMs);
+  const currentReminderKey = `${item.repeat}-${intervalHours}-${elapsedIntervals}`;
+
+  if (item.lastReminderKey !== currentReminderKey) {
+    return { dueAt: now.getTime(), reminderKey: currentReminderKey };
+  }
+
+  const nextIntervalIndex = elapsedIntervals + 1;
+  return {
+    dueAt: startMs + nextIntervalIndex * intervalMs,
+    reminderKey: `${item.repeat}-${intervalHours}-${nextIntervalIndex}`,
+  };
 }
 
-function getActivityReminderMatch(item: Activity, now: Date) {
-  return getPlanReminderMatch(
+function getActivityReminderOccurrence(item: Activity, now: Date) {
+  return getNextPlanReminderOccurrence(
     {
-      id: item.id,
       dateKey: item.reminderStartDateKey,
-      title: item.name,
       time: item.reminderTime,
-      note: "",
-      completed: item.completed,
       reminder: item.reminder,
       repeat: item.repeat,
       customRepeatHours: item.customRepeatHours,
@@ -674,6 +787,22 @@ function getActivityReminderMatch(item: Activity, now: Date) {
     },
     now,
   );
+}
+
+function summarizeReminderMessage(names: string[]) {
+  if (names.length === 0) {
+    return "";
+  }
+
+  if (names.length === 1) {
+    return `Time for: ${names[0]}`;
+  }
+
+  if (names.length === 2) {
+    return `Time for: ${names[0]} and ${names[1]}`;
+  }
+
+  return `Time for: ${names[0]}, ${names[1]}, and ${names.length - 2} more`;
 }
 
 function getActivityHistoryEntry(
@@ -863,14 +992,6 @@ function getDaySummary(entries: CheckIn[], label: string) {
   }
 
   return "A small moment of care was kept here.";
-}
-
-function getCurrentTimeKey(date = new Date()) {
-  return date.toLocaleTimeString("en-GB", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
 }
 
 function normalizePlanItems(items: PlanItem[]) {
@@ -1200,6 +1321,7 @@ export default function EmberApp() {
   const supabase = useMemo(() => getSupabaseBrowserClient(), []);
   const cloudSaveTimeoutRef = useRef<number | null>(null);
   const cloudSyncIntervalRef = useRef<number | null>(null);
+  const reminderTimeoutRef = useRef<number | null>(null);
   const currentSnapshotRef = useRef<EmberCloudSnapshot>(
     buildSnapshot({
       activities: normalizeActivities(initialActivities),
@@ -1811,20 +1933,45 @@ export default function EmberApp() {
       return;
     }
 
-    const checkReminders = () => {
+    const showReminderNotification = async (message: string) => {
+      if ("Notification" in window && window.Notification.permission === "granted") {
+        if ("serviceWorker" in navigator) {
+          try {
+            const registration = await navigator.serviceWorker.ready;
+            await registration.showNotification("Ember", {
+              body: message,
+              tag: `ember-${message}`,
+            });
+            return;
+          } catch {
+            // Fall back to the page notification API if the service worker is not ready.
+          }
+        }
+
+        void new window.Notification("Ember", {
+          body: message,
+        });
+      }
+    };
+
+    const flushDueReminders = () => {
       const now = new Date();
-      let nextPlanMessage = "";
-      let nextActivityMessage = "";
+      const dueActivityNames: string[] = [];
+      const duePlanNames: string[] = [];
 
       setActivities((current) =>
         current.map((item) => {
-          const reminderMatch = getActivityReminderMatch(item, now);
+          const occurrence = getActivityReminderOccurrence(item, now);
 
-          if (reminderMatch && item.lastReminderKey !== reminderMatch.reminderKey) {
-            nextActivityMessage = `Time for: ${item.name}`;
+          if (
+            occurrence &&
+            occurrence.dueAt <= now.getTime() &&
+            item.lastReminderKey !== occurrence.reminderKey
+          ) {
+            dueActivityNames.push(item.name);
             return {
               ...item,
-              lastReminderKey: reminderMatch.reminderKey,
+              lastReminderKey: occurrence.reminderKey,
             };
           }
 
@@ -1834,13 +1981,17 @@ export default function EmberApp() {
 
       setPlanItems((current) =>
         current.map((item) => {
-          const reminderMatch = getPlanReminderMatch(item, now);
+          const occurrence = getNextPlanReminderOccurrence(item, now);
 
-          if (reminderMatch && item.lastReminderKey !== reminderMatch.reminderKey) {
-            nextPlanMessage = `Time for: ${item.title}`;
+          if (
+            occurrence &&
+            occurrence.dueAt <= now.getTime() &&
+            item.lastReminderKey !== occurrence.reminderKey
+          ) {
+            duePlanNames.push(item.title);
             return {
               ...item,
-              lastReminderKey: reminderMatch.reminderKey,
+              lastReminderKey: occurrence.reminderKey,
             };
           }
 
@@ -1848,30 +1999,67 @@ export default function EmberApp() {
         }),
       );
 
+      const nextActivityMessage = summarizeReminderMessage(dueActivityNames);
+      const nextPlanMessage = summarizeReminderMessage(duePlanNames);
+
       if (nextActivityMessage) {
         setActivityReminderMessage(nextActivityMessage);
-        if ("Notification" in window && window.Notification.permission === "granted") {
-          void new window.Notification("Ember", {
-            body: nextActivityMessage,
-          });
-        }
+        void showReminderNotification(nextActivityMessage);
       }
 
       if (nextPlanMessage) {
         setPlanReminderMessage(nextPlanMessage);
-        if ("Notification" in window && window.Notification.permission === "granted") {
-          void new window.Notification("Ember", {
-            body: nextPlanMessage,
-          });
-        }
+        void showReminderNotification(nextPlanMessage);
       }
     };
 
-    checkReminders();
-    const intervalId = window.setInterval(checkReminders, 60000);
+    const scheduleNextReminder = () => {
+      if (reminderTimeoutRef.current !== null) {
+        window.clearTimeout(reminderTimeoutRef.current);
+        reminderTimeoutRef.current = null;
+      }
 
-    return () => window.clearInterval(intervalId);
-  }, [isHydrated]);
+      const now = new Date();
+      const nextDueAt = [...activities.map((item) => getActivityReminderOccurrence(item, now)), ...planItems.map((item) => getNextPlanReminderOccurrence(item, now))]
+        .filter((occurrence): occurrence is ReminderOccurrence => occurrence !== null)
+        .reduce<number | null>(
+          (soonest, occurrence) =>
+            soonest === null ? occurrence.dueAt : Math.min(soonest, occurrence.dueAt),
+          null,
+        );
+
+      if (nextDueAt === null) {
+        return;
+      }
+
+      const maxDelayMs = 12 * 60 * 60 * 1000;
+      const delay = Math.max(0, Math.min(nextDueAt - now.getTime(), maxDelayMs));
+
+      reminderTimeoutRef.current = window.setTimeout(() => {
+        flushDueReminders();
+        scheduleNextReminder();
+      }, delay + 40);
+    };
+
+    const handleVisibilityRefresh = () => {
+      flushDueReminders();
+      scheduleNextReminder();
+    };
+
+    flushDueReminders();
+    scheduleNextReminder();
+    window.addEventListener("focus", handleVisibilityRefresh);
+    document.addEventListener("visibilitychange", handleVisibilityRefresh);
+
+    return () => {
+      if (reminderTimeoutRef.current !== null) {
+        window.clearTimeout(reminderTimeoutRef.current);
+        reminderTimeoutRef.current = null;
+      }
+      window.removeEventListener("focus", handleVisibilityRefresh);
+      document.removeEventListener("visibilitychange", handleVisibilityRefresh);
+    };
+  }, [isHydrated, activities, planItems]);
 
   const currentTimerMs = timerNowMs ?? 0;
   const visibleActivities = isHydrated ? activities : normalizeActivities(initialActivities);
