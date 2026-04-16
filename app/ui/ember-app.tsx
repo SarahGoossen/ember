@@ -3,11 +3,32 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase-browser";
+import {
+  getCustomRepeatHours,
+  getNextReminderOccurrence,
+  summarizeReminderMessage,
+  type PlanReminderRepeat,
+  type ReminderOccurrence,
+} from "@/lib/push-reminders";
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
   userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
 };
+
+type PushState = "checking" | "unsupported" | "off" | "on" | "setting-up";
+
+function getInitialPushState(): PushState {
+  if (typeof window === "undefined") {
+    return "checking";
+  }
+
+  return "Notification" in window &&
+    "serviceWorker" in navigator &&
+    "PushManager" in window
+    ? "off"
+    : "unsupported";
+}
 
 type TabId = "home" | "coach" | "journey" | "resource" | "profile";
 
@@ -66,16 +87,6 @@ type Resource = {
   note: string;
   tags: string[];
 };
-
-type PlanReminderRepeat =
-  | "none"
-  | "daily"
-  | "weekly"
-  | "monthly"
-  | "yearly"
-  | "every-4-hours"
-  | "every-6-hours"
-  | "custom-hours";
 
 type PlanItem = {
   id: number;
@@ -400,11 +411,12 @@ function getTodayKey() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function getLocalDateKey(date = new Date()) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = window.atob(base64);
+
+  return Uint8Array.from(rawData, (char) => char.charCodeAt(0));
 }
 
 function getDisplayDateTime(date = new Date()) {
@@ -517,14 +529,6 @@ function formatPlanRepeatLabel(repeat: PlanReminderRepeat) {
   );
 }
 
-function getCustomRepeatHours(value: number | null | undefined) {
-  if (typeof value !== "number" || Number.isNaN(value)) {
-    return 8;
-  }
-
-  return Math.min(24, Math.max(1, Math.round(value)));
-}
-
 function formatReminderSummary(
   item: Pick<PlanItem, "reminder" | "repeat" | "customRepeatHours">,
 ) {
@@ -540,243 +544,8 @@ function formatReminderSummary(
   return formatPlanRepeatLabel(item.repeat);
 }
 
-function buildLocalDateTime(dateKey: string, time: string) {
-  return new Date(`${dateKey}T${time}:00`);
-}
-
-type ReminderOccurrence = {
-  dueAt: number;
-  reminderKey: string;
-};
-
-function getWeekStartKey(date: Date) {
-  const weekStart = new Date(date);
-  weekStart.setHours(0, 0, 0, 0);
-  weekStart.setDate(weekStart.getDate() - weekStart.getDay());
-  return getLocalDateKey(weekStart);
-}
-
-function createDateAtTime(date: Date, time: string) {
-  const [hoursText, minutesText] = time.split(":");
-  const hours = Number(hoursText);
-  const minutes = Number(minutesText);
-
-  if (Number.isNaN(hours) || Number.isNaN(minutes)) {
-    return null;
-  }
-
-  const result = new Date(date);
-  result.setHours(hours, minutes, 0, 0);
-  return result;
-}
-
-function createMonthOccurrence(
-  year: number,
-  monthIndex: number,
-  dayOfMonth: number,
-  time: string,
-) {
-  const candidate = new Date(year, monthIndex, dayOfMonth);
-
-  if (
-    candidate.getFullYear() !== year ||
-    candidate.getMonth() !== monthIndex ||
-    candidate.getDate() !== dayOfMonth
-  ) {
-    return null;
-  }
-
-  return createDateAtTime(candidate, time);
-}
-
-function createYearOccurrence(
-  year: number,
-  monthIndex: number,
-  dayOfMonth: number,
-  time: string,
-) {
-  return createMonthOccurrence(year, monthIndex, dayOfMonth, time);
-}
-
-function getNextPlanReminderOccurrence(
-  item: Pick<PlanItem, "dateKey" | "time" | "reminder" | "repeat" | "customRepeatHours" | "lastReminderKey">,
-  now: Date,
-): ReminderOccurrence | null {
-  if (!item.reminder) {
-    return null;
-  }
-
-  const startDate = buildLocalDateTime(item.dateKey, item.time);
-  const startMs = startDate.getTime();
-
-  if (Number.isNaN(startMs)) {
-    return null;
-  }
-
-  if (item.repeat === "none") {
-    const reminderKey = item.dateKey;
-
-    if (now.getTime() < startMs) {
-      return { dueAt: startMs, reminderKey };
-    }
-
-    if (getLocalDateKey(now) === item.dateKey && item.lastReminderKey !== reminderKey) {
-      return { dueAt: now.getTime(), reminderKey };
-    }
-
-    return null;
-  }
-
-  if (item.repeat === "daily") {
-    const todayCandidate = createDateAtTime(now, item.time);
-
-    if (!todayCandidate) {
-      return null;
-    }
-
-    if (todayCandidate.getTime() < startMs) {
-      return { dueAt: startMs, reminderKey: item.dateKey };
-    }
-
-    const todayKey = getLocalDateKey(todayCandidate);
-
-    if (todayCandidate.getTime() <= now.getTime() && item.lastReminderKey !== todayKey) {
-      return { dueAt: now.getTime(), reminderKey: todayKey };
-    }
-
-    if (todayCandidate.getTime() > now.getTime()) {
-      return { dueAt: todayCandidate.getTime(), reminderKey: todayKey };
-    }
-
-    const tomorrowCandidate = new Date(todayCandidate);
-    tomorrowCandidate.setDate(tomorrowCandidate.getDate() + 1);
-    return {
-      dueAt: tomorrowCandidate.getTime(),
-      reminderKey: getLocalDateKey(tomorrowCandidate),
-    };
-  }
-
-  if (item.repeat === "weekly") {
-    const currentWeekCandidate = createDateAtTime(now, item.time);
-
-    if (!currentWeekCandidate) {
-      return null;
-    }
-
-    currentWeekCandidate.setDate(
-      currentWeekCandidate.getDate() - currentWeekCandidate.getDay() + startDate.getDay(),
-    );
-
-    if (currentWeekCandidate.getTime() < startMs) {
-      return { dueAt: startMs, reminderKey: getWeekStartKey(startDate) };
-    }
-
-    const currentWeekKey = getWeekStartKey(currentWeekCandidate);
-
-    if (
-      currentWeekCandidate.getTime() <= now.getTime() &&
-      item.lastReminderKey !== currentWeekKey
-    ) {
-      return { dueAt: now.getTime(), reminderKey: currentWeekKey };
-    }
-
-    if (currentWeekCandidate.getTime() > now.getTime()) {
-      return { dueAt: currentWeekCandidate.getTime(), reminderKey: currentWeekKey };
-    }
-
-    const nextWeekCandidate = new Date(currentWeekCandidate);
-    nextWeekCandidate.setDate(nextWeekCandidate.getDate() + 7);
-    return {
-      dueAt: nextWeekCandidate.getTime(),
-      reminderKey: getWeekStartKey(nextWeekCandidate),
-    };
-  }
-
-  if (item.repeat === "monthly") {
-    for (let offset = 0; offset < 24; offset += 1) {
-      const candidate = createMonthOccurrence(
-        now.getFullYear(),
-        now.getMonth() + offset,
-        startDate.getDate(),
-        item.time,
-      );
-
-      if (!candidate || candidate.getTime() < startMs) {
-        continue;
-      }
-
-      const reminderKey = `${candidate.getFullYear()}-${String(candidate.getMonth() + 1).padStart(2, "0")}`;
-
-      if (offset === 0 && candidate.getTime() <= now.getTime() && item.lastReminderKey !== reminderKey) {
-        return { dueAt: now.getTime(), reminderKey };
-      }
-
-      if (candidate.getTime() > now.getTime()) {
-        return { dueAt: candidate.getTime(), reminderKey };
-      }
-    }
-
-    return null;
-  }
-
-  if (item.repeat === "yearly") {
-    for (let offset = 0; offset < 5; offset += 1) {
-      const candidate = createYearOccurrence(
-        now.getFullYear() + offset,
-        startDate.getMonth(),
-        startDate.getDate(),
-        item.time,
-      );
-
-      if (!candidate || candidate.getTime() < startMs) {
-        continue;
-      }
-
-      const reminderKey = String(candidate.getFullYear());
-
-      if (offset === 0 && candidate.getTime() <= now.getTime() && item.lastReminderKey !== reminderKey) {
-        return { dueAt: now.getTime(), reminderKey };
-      }
-
-      if (candidate.getTime() > now.getTime()) {
-        return { dueAt: candidate.getTime(), reminderKey };
-      }
-    }
-
-    return null;
-  }
-
-  const intervalHours =
-    item.repeat === "every-4-hours"
-      ? 4
-      : item.repeat === "every-6-hours"
-        ? 6
-        : getCustomRepeatHours(item.customRepeatHours);
-  const intervalMs = intervalHours * 60 * 60 * 1000;
-
-  if (now.getTime() < startMs) {
-    return {
-      dueAt: startMs,
-      reminderKey: `${item.repeat}-${intervalHours}-0`,
-    };
-  }
-
-  const elapsedIntervals = Math.floor((now.getTime() - startMs) / intervalMs);
-  const currentReminderKey = `${item.repeat}-${intervalHours}-${elapsedIntervals}`;
-
-  if (item.lastReminderKey !== currentReminderKey) {
-    return { dueAt: now.getTime(), reminderKey: currentReminderKey };
-  }
-
-  const nextIntervalIndex = elapsedIntervals + 1;
-  return {
-    dueAt: startMs + nextIntervalIndex * intervalMs,
-    reminderKey: `${item.repeat}-${intervalHours}-${nextIntervalIndex}`,
-  };
-}
-
 function getActivityReminderOccurrence(item: Activity, now: Date) {
-  return getNextPlanReminderOccurrence(
+  return getNextReminderOccurrence(
     {
       dateKey: item.reminderStartDateKey,
       time: item.reminderTime,
@@ -787,22 +556,6 @@ function getActivityReminderOccurrence(item: Activity, now: Date) {
     },
     now,
   );
-}
-
-function summarizeReminderMessage(names: string[]) {
-  if (names.length === 0) {
-    return "";
-  }
-
-  if (names.length === 1) {
-    return `Time for: ${names[0]}`;
-  }
-
-  if (names.length === 2) {
-    return `Time for: ${names[0]} and ${names[1]}`;
-  }
-
-  return `Time for: ${names[0]}, ${names[1]}, and ${names.length - 2} more`;
 }
 
 function getActivityHistoryEntry(
@@ -1389,7 +1142,7 @@ export default function EmberApp() {
   const [selectedPlanDateKey, setSelectedPlanDateKey] = useState("2026-03-31");
   const [calendarMonthKey, setCalendarMonthKey] = useState("2026-03");
   const [timerNowMs, setTimerNowMs] = useState<number | null>(null);
-  const [notificationPermission, setNotificationPermission] = useState("default");
+  const [pushState, setPushState] = useState<PushState>(getInitialPushState);
   const [onboardingDismissed, setOnboardingDismissed] = useState(false);
   const [installPromptEvent, setInstallPromptEvent] = useState<BeforeInstallPromptEvent | null>(
     null,
@@ -1425,9 +1178,6 @@ export default function EmberApp() {
       setProfile(storedProfile);
       setSmallGoals(storedSmallGoals);
       setOnboardingDismissed(storedOnboardingDismissed);
-      if ("Notification" in window) {
-        setNotificationPermission(window.Notification.permission);
-      }
       setQuoteIndex(getRandomInspireIndex());
       const hydratedTodayKey = getTodayKey();
       setTodayKey(hydratedTodayKey);
@@ -1960,43 +1710,55 @@ export default function EmberApp() {
       const duePlanNames: string[] = [];
 
       setActivities((current) =>
-        current.map((item) => {
-          const occurrence = getActivityReminderOccurrence(item, now);
+        (() => {
+          let changed = false;
+          const nextItems = current.map((item) => {
+            const occurrence = getActivityReminderOccurrence(item, now);
 
-          if (
-            occurrence &&
-            occurrence.dueAt <= now.getTime() &&
-            item.lastReminderKey !== occurrence.reminderKey
-          ) {
-            dueActivityNames.push(item.name);
-            return {
-              ...item,
-              lastReminderKey: occurrence.reminderKey,
-            };
-          }
+            if (
+              occurrence &&
+              occurrence.dueAt <= now.getTime() &&
+              item.lastReminderKey !== occurrence.reminderKey
+            ) {
+              changed = true;
+              dueActivityNames.push(item.name);
+              return {
+                ...item,
+                lastReminderKey: occurrence.reminderKey,
+              };
+            }
 
-          return item;
-        }),
+            return item;
+          });
+
+          return changed ? nextItems : current;
+        })(),
       );
 
       setPlanItems((current) =>
-        current.map((item) => {
-          const occurrence = getNextPlanReminderOccurrence(item, now);
+        (() => {
+          let changed = false;
+          const nextItems = current.map((item) => {
+            const occurrence = getNextReminderOccurrence(item, now);
 
-          if (
-            occurrence &&
-            occurrence.dueAt <= now.getTime() &&
-            item.lastReminderKey !== occurrence.reminderKey
-          ) {
-            duePlanNames.push(item.title);
-            return {
-              ...item,
-              lastReminderKey: occurrence.reminderKey,
-            };
-          }
+            if (
+              occurrence &&
+              occurrence.dueAt <= now.getTime() &&
+              item.lastReminderKey !== occurrence.reminderKey
+            ) {
+              changed = true;
+              duePlanNames.push(item.title);
+              return {
+                ...item,
+                lastReminderKey: occurrence.reminderKey,
+              };
+            }
 
-          return item;
-        }),
+            return item;
+          });
+
+          return changed ? nextItems : current;
+        })(),
       );
 
       const nextActivityMessage = summarizeReminderMessage(dueActivityNames);
@@ -2020,7 +1782,7 @@ export default function EmberApp() {
       }
 
       const now = new Date();
-      const nextDueAt = [...activities.map((item) => getActivityReminderOccurrence(item, now)), ...planItems.map((item) => getNextPlanReminderOccurrence(item, now))]
+      const nextDueAt = [...activities.map((item) => getActivityReminderOccurrence(item, now)), ...planItems.map((item) => getNextReminderOccurrence(item, now))]
         .filter((occurrence): occurrence is ReminderOccurrence => occurrence !== null)
         .reduce<number | null>(
           (soonest, occurrence) =>
@@ -2042,6 +1804,10 @@ export default function EmberApp() {
     };
 
     const handleVisibilityRefresh = () => {
+      if (document.visibilityState === "hidden") {
+        return;
+      }
+
       flushDueReminders();
       scheduleNextReminder();
     };
@@ -2060,6 +1826,39 @@ export default function EmberApp() {
       document.removeEventListener("visibilitychange", handleVisibilityRefresh);
     };
   }, [isHydrated, activities, planItems]);
+
+  useEffect(() => {
+    if (!isHydrated) {
+      return;
+    }
+
+    if (getInitialPushState() === "unsupported") {
+      return;
+    }
+
+    let isActive = true;
+
+    void (async () => {
+      try {
+        const registration = await navigator.serviceWorker.ready;
+        const subscription = await registration.pushManager.getSubscription();
+
+        if (!isActive) {
+          return;
+        }
+
+        setPushState(subscription ? "on" : "off");
+      } catch {
+        if (isActive) {
+          setPushState("off");
+        }
+      }
+    })();
+
+    return () => {
+      isActive = false;
+    };
+  }, [isHydrated, cloudUserId]);
 
   const currentTimerMs = timerNowMs ?? 0;
   const visibleActivities = isHydrated ? activities : normalizeActivities(initialActivities);
@@ -2522,20 +2321,107 @@ export default function EmberApp() {
     setResourceMessage("Sharing is not supported here.");
   };
 
-  const requestNotifications = async () => {
-    if (!("Notification" in window)) {
-      setProfileMessage("Notifications are not supported here.");
+  const enablePushNotifications = async () => {
+    if (!supabase || !cloudUserId) {
+      setProfileMessage("Sign in to cloud save before turning on push notifications.");
       return;
     }
+
+    if (
+      !("Notification" in window) ||
+      !("serviceWorker" in navigator) ||
+      !("PushManager" in window)
+    ) {
+      setPushState("unsupported");
+      setProfileMessage("Push notifications are not supported on this device.");
+      return;
+    }
+
+    const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+
+    if (!vapidPublicKey) {
+      setProfileMessage("Push notifications are not configured yet.");
+      return;
+    }
+
+    setPushState("setting-up");
 
     const permission = await window.Notification.requestPermission();
-    setNotificationPermission(permission);
-    if (permission === "granted") {
-      setProfileMessage("Notifications are on.");
+    if (permission !== "granted") {
+      setPushState("off");
+      setProfileMessage("Push notifications stayed off.");
       return;
     }
 
-    setProfileMessage("Notifications stayed off.");
+    const registration = await navigator.serviceWorker.ready;
+    const existingSubscription = await registration.pushManager.getSubscription();
+    const subscription =
+      existingSubscription ??
+      (await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+      }));
+
+    const { data, error: sessionError } = await supabase.auth.getSession();
+
+    if (sessionError || !data.session?.user) {
+      setPushState("off");
+      setProfileMessage("Your session needs to reconnect before push can turn on.");
+      return;
+    }
+
+    const { error } = await supabase.from("ember_push_subscriptions").upsert(
+      {
+        endpoint: subscription.endpoint,
+        user_id: data.session.user.id,
+        subscription: subscription.toJSON(),
+        user_agent: navigator.userAgent,
+        updated_at: new Date().toISOString(),
+      },
+      {
+        onConflict: "endpoint",
+      },
+    );
+
+    if (error) {
+      setPushState("off");
+      setProfileMessage(formatCloudError(error, "Push notifications could not turn on."));
+      return;
+    }
+
+    setPushState("on");
+    setProfileMessage("Push notifications are on for this device.");
+  };
+
+  const disablePushNotifications = async () => {
+    if (
+      !supabase ||
+      !("serviceWorker" in navigator) ||
+      !("PushManager" in window)
+    ) {
+      setPushState("off");
+      return;
+    }
+
+    const registration = await navigator.serviceWorker.ready;
+    const subscription = await registration.pushManager.getSubscription();
+
+    if (subscription) {
+      const { error } = await supabase
+        .from("ember_push_subscriptions")
+        .delete()
+        .eq("endpoint", subscription.endpoint);
+
+      if (error) {
+        setProfileMessage(formatCloudError(error, "Push notifications could not turn off."));
+        return;
+      }
+
+      await subscription.unsubscribe();
+    }
+
+    setPushState("off");
+    setProfileMessage("Push notifications are off for this device.");
   };
 
   const sendCloudLink = async () => {
@@ -4158,7 +4044,7 @@ export default function EmberApp() {
                 {visibleProfile.name ? visibleProfile.name : "Profile tools"}
               </p>
               <p className="mt-2 text-sm text-[#eef6ff]">
-                Notifications, app install, and backup.
+                Push alerts, app install, and backup.
               </p>
               <div className="mt-4 flex flex-wrap gap-2">
                 {installPromptEvent ? (
@@ -4175,13 +4061,19 @@ export default function EmberApp() {
                 <button
                   className="rounded-full border border-accent/40 px-4 py-2 text-sm font-semibold text-accent hover:border-accent"
                   onClick={() => {
-                    void requestNotifications();
+                    void (pushState === "on"
+                      ? disablePushNotifications()
+                      : enablePushNotifications());
                   }}
                   type="button"
                 >
-                  {notificationPermission === "granted"
-                    ? "Notifications on"
-                    : "Enable notifications"}
+                  {pushState === "setting-up"
+                    ? "Turning on push..."
+                    : pushState === "on"
+                      ? "Push on"
+                      : pushState === "unsupported"
+                        ? "Push unsupported"
+                        : "Enable push"}
                 </button>
                 <button
                   className="rounded-full border border-white/14 px-4 py-2 text-sm font-semibold text-[#eef6ff] hover:text-white"
