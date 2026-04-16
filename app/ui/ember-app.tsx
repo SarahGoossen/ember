@@ -3348,7 +3348,7 @@ export default function EmberApp() {
                 value={planDraft.title}
               />
               <input
-                className="w-full rounded-2xl border border-border bg-transparent px-4 py-3 text-sm text-white outline-none focus:border-accent"
+                className="ember-native-picker w-full rounded-2xl border border-border bg-transparent px-4 py-3 text-sm text-white outline-none focus:border-accent"
                 onChange={(event) => {
                   const nextDateKey = event.target.value;
 
@@ -3363,7 +3363,7 @@ export default function EmberApp() {
                 value={planDraft.dateKey}
               />
               <input
-                className="w-full rounded-2xl border border-border bg-transparent px-4 py-3 text-sm text-white outline-none focus:border-accent"
+                className="ember-native-picker w-full rounded-2xl border border-border bg-transparent px-4 py-3 text-sm text-white outline-none focus:border-accent"
                 onChange={(event) =>
                   setPlanDraft((current) => ({
                     ...current,
@@ -3806,7 +3806,7 @@ export default function EmberApp() {
             <div>
               <h2 className="text-lg font-semibold text-white">Profile</h2>
               <p className="mt-1 text-sm text-[#eef6ff]">
-                Your details, health notes, and app settings.
+                Your details and settings in one place.
               </p>
             </div>
 
@@ -3815,10 +3815,7 @@ export default function EmberApp() {
                 <div>
                   <p className="text-base font-semibold text-white">Cloud save</p>
                   <p className="mt-1 text-sm text-[#eef6ff]">
-                    Set up cloud save to keep your data across devices and updates.
-                  </p>
-                  <p className="mt-2 text-xs text-[#d9e8ff]">
-                    Set it up once to keep your entries saved to your private account, where they stay with you and are only visible to you.
+                    Keep your entries available across devices and app updates.
                   </p>
                 </div>
                 <span className="rounded-full border border-white/12 px-3 py-1 text-xs text-[#eef6ff]">
@@ -3875,10 +3872,10 @@ export default function EmberApp() {
 
             <div className="rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-4">
               <p className="text-base font-semibold text-white">
-                {visibleProfile.name ? `Welcome, ${visibleProfile.name}` : "Welcome"}
+                {visibleProfile.name ? visibleProfile.name : "Profile tools"}
               </p>
               <p className="mt-2 text-sm text-[#eef6ff]">
-                Keep the details you want close by.
+                Notifications, app install, and backup.
               </p>
               <div className="mt-4 flex flex-wrap gap-2">
                 {installPromptEvent ? (
@@ -3942,7 +3939,7 @@ export default function EmberApp() {
             <div className="space-y-3 rounded-2xl border border-border bg-card-strong p-3">
               <div>
                 <p className="text-sm font-semibold text-white">Your details</p>
-                <p className="mt-1 text-sm text-muted">Add or update the details you want Ember to keep.</p>
+                <p className="mt-1 text-sm text-muted">Add or update the information you want saved here.</p>
               </div>
               <input
                 className="w-full rounded-2xl border border-border bg-transparent px-4 py-3 text-sm text-white outline-none placeholder:text-muted focus:border-accent"
@@ -3999,37 +3996,6 @@ export default function EmberApp() {
                 placeholder="Anything you want Ember to hold onto here"
                 value={profile.notes}
               />
-            </div>
-
-            <div className="rounded-2xl border border-border bg-card-strong px-4 py-4">
-              <p className="text-sm font-semibold text-white">
-                {visibleProfile.name
-                  ? `Hello, ${visibleProfile.name}`
-                  : "A personal place, ready when you are"}
-              </p>
-              <p className="mt-2 text-sm text-[#eef6ff]">
-                {visibleProfile.name
-                  ? "Your basics are here when you need them."
-                  : "Add your name to make Ember feel more like it knows you."}
-              </p>
-              <div className="mt-3 space-y-2 text-sm text-[#eef6ff]">
-                <p>
-                  Weight: <span className="text-white">{visibleProfile.weight || "Not added yet"}</span>
-                </p>
-                <p>
-                  Blood pressure:{" "}
-                  <span className="text-white">{visibleProfile.bloodPressure || "Not added yet"}</span>
-                </p>
-                <p>
-                  Heart rate:{" "}
-                  <span className="text-white">{visibleProfile.heartRate || "Not added yet"}</span>
-                </p>
-              </div>
-              {profile.notes ? (
-                <p className="mt-3 rounded-2xl border border-white/8 bg-white/[0.04] px-3 py-3 text-sm leading-6 text-[#eef6ff]">
-                  {profile.notes}
-                </p>
-              ) : null}
             </div>
           </section>
         </div>
