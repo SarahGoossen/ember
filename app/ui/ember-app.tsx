@@ -17,6 +17,7 @@ type BeforeInstallPromptEvent = Event & {
 };
 
 type PushState = "checking" | "unsupported" | "off" | "on" | "setting-up";
+type CloudAuthMode = "signin" | "signup";
 
 function getInitialPushState(): PushState {
   if (typeof window === "undefined") {
@@ -1131,6 +1132,8 @@ export default function EmberApp() {
   const [profileMessage, setProfileMessage] = useState("");
   const [cloudMessage, setCloudMessage] = useState("");
   const [cloudEmail, setCloudEmail] = useState("");
+  const [cloudPassword, setCloudPassword] = useState("");
+  const [cloudAuthMode, setCloudAuthMode] = useState<CloudAuthMode>("signin");
   const [cloudUserEmail, setCloudUserEmail] = useState("");
   const [cloudUserId, setCloudUserId] = useState<string | null>(null);
   const [cloudStatus, setCloudStatus] = useState<
@@ -2424,38 +2427,78 @@ export default function EmberApp() {
     setProfileMessage("Push notifications are off for this device.");
   };
 
-  const sendCloudLink = async () => {
+  const signInCloud = async () => {
     const email = cloudEmail.trim();
+    const password = cloudPassword.trim();
 
     if (!supabase) {
       setCloudMessage("Connect Supabase first.");
       return;
     }
 
-    if (!email) {
-      setCloudMessage("Add your email first.");
+    if (!email || !password) {
+      setCloudMessage("Add your email and password first.");
       return;
     }
 
     setCloudStatus("connecting");
-    const { error } = await supabase.auth.signInWithOtp({
+    const { error } = await supabase.auth.signInWithPassword({
       email,
-      options: {
-        emailRedirectTo: window.location.href,
-      },
+      password,
     });
 
     if (error) {
       setCloudStatus("error");
       setCloudMessage(
-        formatCloudError(error, "That sign-in link did not go through."),
+        formatCloudError(error, "That sign-in did not go through."),
       );
       return;
     }
 
     setCloudStatus("idle");
-    setCloudMessage("Check your email for the sign-in link.");
-    setCloudEmail("");
+    setCloudMessage("Cloud sync is on.");
+    setCloudPassword("");
+  };
+
+  const signUpCloud = async () => {
+    const email = cloudEmail.trim();
+    const password = cloudPassword.trim();
+
+    if (!supabase) {
+      setCloudMessage("Connect Supabase first.");
+      return;
+    }
+
+    if (!email || !password) {
+      setCloudMessage("Add your email and password first.");
+      return;
+    }
+
+    setCloudStatus("connecting");
+    const emailRedirectTo =
+      typeof window !== "undefined" ? `${window.location.origin}/auth/confirm` : undefined;
+
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        emailRedirectTo,
+      },
+    });
+
+    if (error) {
+      setCloudStatus("error");
+      setCloudMessage(formatCloudError(error, "That account could not be created."));
+      return;
+    }
+
+    setCloudStatus("idle");
+    setCloudMessage(
+      data.user
+        ? "Account created. Check your email if confirmation is required, then sign in."
+        : "Check your email to confirm your account.",
+    );
+    setCloudPassword("");
   };
 
   const signOutCloud = async () => {
@@ -2773,8 +2816,7 @@ export default function EmberApp() {
           ) : null}
 
           <section className="rounded-[1.6rem] border border-[rgba(255,255,255,0.1)] bg-[linear-gradient(150deg,rgba(19,50,90,0.88),rgba(34,44,88,0.92))] px-4 py-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-[#dff6ff]">Welcome</p>
-            <p className="mt-2 font-serif text-[1.5rem] leading-tight text-white">
+            <p className="font-serif text-[1.5rem] leading-tight text-white">
               {visibleProfile.name ? `Hi, ${visibleProfile.name}` : "Hi there"}
             </p>
             <p className="mt-1.5 text-sm text-muted">
@@ -4014,21 +4056,52 @@ export default function EmberApp() {
                 </div>
               ) : (
                 <div className="mt-3 space-y-3 rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+                  <div className="flex gap-2">
+                    <button
+                      className={`flex-1 rounded-full border px-3 py-2 text-sm font-semibold ${
+                        cloudAuthMode === "signin"
+                          ? "border-accent/50 bg-accent-soft text-accent"
+                          : "border-white/10 text-[#eef6ff]"
+                      }`}
+                      onClick={() => setCloudAuthMode("signin")}
+                      type="button"
+                    >
+                      Sign in
+                    </button>
+                    <button
+                      className={`flex-1 rounded-full border px-3 py-2 text-sm font-semibold ${
+                        cloudAuthMode === "signup"
+                          ? "border-accent/50 bg-accent-soft text-accent"
+                          : "border-white/10 text-[#eef6ff]"
+                      }`}
+                      onClick={() => setCloudAuthMode("signup")}
+                      type="button"
+                    >
+                      Create account
+                    </button>
+                  </div>
                   <input
                     className="w-full rounded-2xl border border-white/12 bg-[#0d1627] px-4 py-3 text-sm text-white outline-none placeholder:text-muted focus:border-accent"
                     onChange={(event) => setCloudEmail(event.target.value)}
-                    placeholder="Email for private cloud save"
+                    placeholder="Email"
                     type="email"
                     value={cloudEmail}
+                  />
+                  <input
+                    className="w-full rounded-2xl border border-white/12 bg-[#0d1627] px-4 py-3 text-sm text-white outline-none placeholder:text-muted focus:border-accent"
+                    onChange={(event) => setCloudPassword(event.target.value)}
+                    placeholder="Password"
+                    type="password"
+                    value={cloudPassword}
                   />
                   <button
                     className="w-full rounded-2xl border border-accent/40 px-4 py-3 text-sm font-semibold text-accent hover:border-accent"
                     onClick={() => {
-                      void sendCloudLink();
+                      void (cloudAuthMode === "signin" ? signInCloud() : signUpCloud());
                     }}
                     type="button"
                   >
-                    Turn on sync
+                    {cloudAuthMode === "signin" ? "Sign in to sync" : "Create account"}
                   </button>
                 </div>
               )}
