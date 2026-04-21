@@ -1,5 +1,15 @@
-const CACHE_NAME = "ember-shell-v2";
-const APP_SHELL = ["/", "/manifest.webmanifest", "/apple-icon", "/icon"];
+const CACHE_NAME = "ember-shell-v3";
+const APP_SHELL = [
+  "/",
+  "/manifest.webmanifest",
+  "/icons/ember-icon-square.png",
+  "/icons/icon-192.png",
+  "/icons/icon-512.png",
+];
+
+function isCacheableResponse(response) {
+  return response && response.ok && response.type !== "opaque";
+}
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -23,34 +33,73 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
+});
+
 self.addEventListener("fetch", (event) => {
   const { request } = event;
+  const url = new URL(request.url);
 
   if (request.method !== "GET") {
     return;
   }
 
+  if (url.origin !== self.location.origin) {
+    return;
+  }
+
   if (request.mode === "navigate") {
     event.respondWith(
-      fetch(request).catch(() => caches.match("/")),
+      fetch(request)
+        .then((response) => {
+          if (isCacheableResponse(response)) {
+            const responseClone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, responseClone));
+          }
+          return response;
+        })
+        .catch(() => caches.match(request).then((cached) => cached || caches.match("/"))),
+    );
+    return;
+  }
+
+  if (
+    request.destination === "script" ||
+    request.destination === "style" ||
+    request.destination === "worker" ||
+    request.destination === "manifest" ||
+    request.destination === "font"
+  ) {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (isCacheableResponse(response)) {
+            const responseClone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, responseClone));
+          }
+          return response;
+        })
+        .catch(() => caches.match(request)),
     );
     return;
   }
 
   event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) {
-        return cached;
-      }
-
-      return fetch(request)
+    caches.match(request).then(
+      (cached) =>
+        cached ||
+        fetch(request)
         .then((response) => {
-          const responseClone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, responseClone));
+          if (isCacheableResponse(response)) {
+            const responseClone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, responseClone));
+          }
           return response;
-        })
-        .catch(() => caches.match("/"));
-    }),
+        }),
+    ),
   );
 });
 

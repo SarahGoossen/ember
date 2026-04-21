@@ -1659,24 +1659,50 @@ export default function EmberApp() {
           return;
         }
 
-        const hasEmberRegistration = registrations.some(
-          (registration) => registration.active?.scriptURL?.includes("/sw.js"),
+        let registration = registrations.find((item) =>
+          item.active?.scriptURL?.includes("/sw.js"),
         );
 
-        if (!hasEmberRegistration) {
-          await navigator.serviceWorker.register("/sw.js");
+        if (!registration) {
+          registration = await navigator.serviceWorker.register("/sw.js");
         }
+
+        await registration.update();
+
+        if (registration.waiting) {
+          registration.waiting.postMessage({ type: "SKIP_WAITING" });
+        }
+
+        registration.addEventListener("updatefound", () => {
+          const installingWorker = registration?.installing;
+
+          if (!installingWorker) {
+            return;
+          }
+
+          installingWorker.addEventListener("statechange", () => {
+            if (installingWorker.state === "installed" && navigator.serviceWorker.controller) {
+              registration?.waiting?.postMessage({ type: "SKIP_WAITING" });
+            }
+          });
+        });
       })();
     }
+
+    const handleControllerChange = () => {
+      window.location.reload();
+    };
 
     const handleBeforeInstallPrompt = (event: Event) => {
       event.preventDefault();
       setInstallPromptEvent(event as BeforeInstallPromptEvent);
     };
 
+    navigator.serviceWorker?.addEventListener("controllerchange", handleControllerChange);
     window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
 
     return () => {
+      navigator.serviceWorker?.removeEventListener("controllerchange", handleControllerChange);
       window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
     };
   }, [isHydrated]);
