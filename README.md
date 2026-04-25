@@ -97,7 +97,7 @@ Authorization: Bearer <CRON_SECRET>
 
 ### 3. Schedule the sender
 
-This repo includes [vercel.json](/Users/sarahgoossen/ember/vercel.json) to call `/api/push/send-due` every minute on Vercel. If you deploy elsewhere, point any scheduler at that route and include the bearer token above.
+This repo includes [vercel.json](/Users/sarahgoossen/ember/vercel.json) to call `/api/push/send-due` once per day on Vercel Hobby. If you deploy elsewhere, point any scheduler at that route and include the bearer token above.
 
 ### 4. Turn push on per device
 
